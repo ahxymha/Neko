@@ -5,14 +5,12 @@ VisualStudioVersion = 17.14.36603.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HookWindowsClose", "HookWindowsClose\HookWindowsClose.vcxproj", "{4C02D43C-0D74-45E8-A7D2-328351DC274A}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "main", "main\main.vcxproj", "{7D8B088E-5B50-43FA-97FD-FB6C2B3DD3C0}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Neko", "main\main.vcxproj", "{7D8B088E-5B50-43FA-97FD-FB6C2B3DD3C0}"
 	ProjectSection(ProjectDependencies) = postProject
 		{400E36DA-DBF7-4BF8-9F33-420F25B06835} = {400E36DA-DBF7-4BF8-9F33-420F25B06835}
 	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "toast", "toast\toast.vcxproj", "{400E36DA-DBF7-4BF8-9F33-420F25B06835}"
-EndProject
-Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "Setup1", "Setup1\Setup1.vdproj", "{F5D91FD6-F519-3AC5-2EF1-6ADD62B256F6}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "InitNeko", "InitNeko\InitNeko.vcxproj", "{B882E635-FE30-4D15-937C-82AC4C63AF1E}"
 EndProject
@@ -48,10 +46,6 @@ Global
 		{400E36DA-DBF7-4BF8-9F33-420F25B06835}.Release|x64.Build.0 = Release|x64
 		{400E36DA-DBF7-4BF8-9F33-420F25B06835}.Release|x86.ActiveCfg = Release|Win32
 		{400E36DA-DBF7-4BF8-9F33-420F25B06835}.Release|x86.Build.0 = Release|Win32
-		{F5D91FD6-F519-3AC5-2EF1-6ADD62B256F6}.Debug|x64.ActiveCfg = Debug
-		{F5D91FD6-F519-3AC5-2EF1-6ADD62B256F6}.Debug|x86.ActiveCfg = Debug
-		{F5D91FD6-F519-3AC5-2EF1-6ADD62B256F6}.Release|x64.ActiveCfg = Release
-		{F5D91FD6-F519-3AC5-2EF1-6ADD62B256F6}.Release|x86.ActiveCfg = Release
 		{B882E635-FE30-4D15-937C-82AC4C63AF1E}.Debug|x64.ActiveCfg = Debug|x64
 		{B882E635-FE30-4D15-937C-82AC4C63AF1E}.Debug|x64.Build.0 = Debug|x64
 		{B882E635-FE30-4D15-937C-82AC4C63AF1E}.Debug|x86.ActiveCfg = Debug|Win32
