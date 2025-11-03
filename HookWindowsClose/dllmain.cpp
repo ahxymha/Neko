@@ -19,12 +19,13 @@ LRESULT CALLBACK CBTProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         // 过滤条件
         bool shouldNotify =
-            wcslen(windowTitle) > 0 &&                    // 有标题
+			wcslen(windowTitle) > 0 &&                  // 有标题
+			!(GetWindowLong(hwnd, GWL_STYLE) & WS_CHILD) &&                    // 非子窗口
             IsWindowVisible(hwnd);                     // 可见窗口
 
         if (shouldNotify) {
             HANDLE hPipe = CreateFile(L"\\\\.\\pipe\\ToastPipe", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-            Sleep(500);
+            Sleep(100);
 			CloseHandle(hPipe);
         }
     }

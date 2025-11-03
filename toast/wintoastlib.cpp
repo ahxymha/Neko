@@ -856,6 +856,11 @@ ComPtr<IToastNotifier> WinToast::notifier(_In_ bool* succeded) const {
 }
 
 void WinToast::markAsReadyForDeletion(_In_ INT64 id) {
+    std::lock_guard<std::recursive_mutex> lock(_bufferMutex);
+    auto fiter = _buffer.find(id);
+    if (fiter != _buffer.end()) {
+        fiter->second.markAsReadyForDeletion();
+    }
     // Flush the buffer by removing all the toasts that are ready for deletion
     for (auto it = _buffer.begin(); it != _buffer.end();) {
         if (it->second.isReadyForDeletion()) {
@@ -867,10 +872,10 @@ void WinToast::markAsReadyForDeletion(_In_ INT64 id) {
     }
 
     // Mark the toast as ready for deletion (if it exists) so that it will be removed from the buffer in the next iteration
-    auto const iter = _buffer.find(id);
-    if (iter != _buffer.end()) {
-        _buffer[id].markAsReadyForDeletion();
-    }
+    //auto const iter = _buffer.find(id);
+    //if (iter != _buffer.end()) {
+    //    _buffer[id].markAsReadyForDeletion();
+    //}
 }
 
 bool WinToast::hideToast(_In_ INT64 id) {

@@ -43,6 +43,7 @@
 #include <vector>
 #include <map>
 #include <memory>
+#include <mutex>
 
 using namespace Microsoft::WRL;
 using namespace ABI::Windows::Data::Xml::Dom;
@@ -288,6 +289,8 @@ namespace WinToastLib {
             bool _readyForDeletion{false};
             bool _previouslyTokenRemoved{false};
         };
+
+        mutable std::recursive_mutex _bufferMutex;
 
         bool _isInitialized{false};
         bool _hasCoInitialized{false};
