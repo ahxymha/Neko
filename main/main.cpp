@@ -1,5 +1,6 @@
 ﻿#include <windows.h>
 #include <thread>
+#include<string>
 #include <iostream>
 #include <sddl.h>
 #include <signal.h>
@@ -621,7 +622,7 @@ void StopFileWatchDog();
 void unhook(int sig) {
     UninstallHook();
     UnregDeviceNotice();
-	//StopFileWatchDog();
+	StopFileWatchDog();
     exit(0);
 }
 
@@ -719,7 +720,31 @@ void StopFileWatchDog() {
     watchdog.StopWatching();
 }
 
-int Adminmain()
+HANDLE OpenProcessAndCreatePipe() {
+    HANDLE w_hd, r_hd;
+    PSECURITY_DESCRIPTOR pSD = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        L"D:(A;;GA;;;WD)(A;;GA;;;BA)", SDDL_REVISION_1, &pSD, nullptr)) {
+        return nullptr;
+    }
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.lpSecurityDescriptor = pSD;
+    sa.bInheritHandle = true;
+    if (!CreatePipe(&r_hd, &w_hd, &sa, 8192)) {
+        return nullptr;
+    }
+    TCHAR szPath[MAX_PATH];
+    if (!GetModuleFileName(NULL, szPath, MAX_PATH)) {
+        return nullptr;
+    }
+    for(int i=1;i<=3;i++){
+        wchar_t args = *(std::to_wstring(i).c_str());
+        
+    }
+}
+
+int Adminmain(int argc, char* argv[])
 {
 	signal(SIGINT, unhook);
     if (!IsHookInstalled()) {
@@ -746,9 +771,9 @@ int Adminmain()
     return 0;
 }
 
-int Usermain()
+int Usermain(int argc, char* argv[])
 {
-    Sleep(10000);
+    Sleep(2000);
     TCHAR szPath[MAX_PATH];
     if (GetModuleFileName(NULL, szPath, MAX_PATH)) {
 		SHELLEXECUTEINFO sei = { 0 };
@@ -756,7 +781,7 @@ int Usermain()
 		sei.lpVerb = L"runas";
 		sei.lpFile = szPath;
         sei.nShow = SW_SHOW;
-        if (!ShellExecuteEx(&sei)) {
+        if (!   (&sei)) {
             if(GetLastError() == ERROR_CANCELLED) {
                 std::wcerr << L"用户取消了管理员权限请求。" << std::endl;
             }
@@ -787,12 +812,12 @@ bool isRunningAsAdmin() {
     return isAdmin == TRUE;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
 	setlocale(LC_ALL, "");
     if (isRunningAsAdmin()) {
-		Adminmain();
+		Adminmain(argc,argv);
     }
     else {
-		Usermain();
+		Usermain(argc,argv);
     }
 }
