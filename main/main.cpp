@@ -854,6 +854,52 @@ VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode)
     }
 }
 
+bool AdminPiep() {
+    PSECURITY_DESCRIPTOR pSD = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        L"D:(A;;GA;;;WD)(A;;GA;;;BA)", SDDL_REVISION_1, &pSD, nullptr)) {
+        return false;
+    }
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.lpSecurityDescriptor = pSD;
+    sa.bInheritHandle = FALSE;
+    auto piep = CreateNamedPipeW(
+        L"\\\\.\\pipe\\AdminPipe",
+        PIPE_ACCESS_INBOUND,
+        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+        255,
+        512,
+        512,
+        0,
+        &sa
+    );
+    if (piep == INVALID_HANDLE_VALUE) {
+        LocalFree(pSD);
+        return false;
+    }
+    for (;;) {
+        BOOL connected = ConnectNamedPipe(piep, nullptr) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+        if (connected) {
+            DWORD pid;
+            if (!GetNamedPipeClientProcessId(piep, &pid)) {
+                LocalFree(pSD);
+                continue;
+            }
+            HANDLE chwd = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (chwd == nullptr) {
+                LocalFree(pSD);
+                continue;
+            }
+            WCHAR path[MAX_PATH];
+            GetModuleFileNameEx(chwd, NULL, path, MAX_PATH);
+            DisconnectNamedPipe(piep);
+        }
+    }
+    LocalFree(pSD);
+
+}
+
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
 {
     g_StatusHandle = RegisterServiceCtrlHandler(L"MyService", ServiceCtrlHandler);
@@ -899,6 +945,9 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
     }
 
     // 服务主循环
+
+
+
     while (WaitForSingleObject(g_ServiceStopEvent, 1000) != WAIT_OBJECT_0)
     {
         
