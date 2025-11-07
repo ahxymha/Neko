@@ -16,6 +16,11 @@
 
 #pragma comment(lib, "Cfgmgr32.lib")
 
+
+SERVICE_STATUS g_ServiceStatus = { 0 };
+SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
+HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
+
 std::mutex NoticeMutex, FileWatchDogMutex;
 
 enum NotificationMode {
@@ -820,4 +825,92 @@ int main(int argc, char* argv[]) {
     else {
 		Usermain(argc,argv);
     }
+}
+
+
+VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode)
+{
+    switch (CtrlCode)
+    {
+    case SERVICE_CONTROL_STOP:
+        if (g_ServiceStatus.dwCurrentState != SERVICE_RUNNING)
+            break;
+
+        g_ServiceStatus.dwControlsAccepted = 0;
+        g_ServiceStatus.dwCurrentState = SERVICE_STOP_PENDING;
+        g_ServiceStatus.dwWin32ExitCode = 0;
+        g_ServiceStatus.dwCheckPoint = 4;
+
+        if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
+        {
+            OutputDebugString(L"ServiceCtrlHandler: SetServiceStatus failed");
+        }
+
+        SetEvent(g_ServiceStopEvent);
+        break;
+
+    default:
+        break;
+    }
+}
+
+VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
+{
+    g_StatusHandle = RegisterServiceCtrlHandler(L"MyService", ServiceCtrlHandler);
+
+    if (g_StatusHandle == NULL)
+    {
+        return;
+    }
+
+    // 初始化服务状态
+    ZeroMemory(&g_ServiceStatus, sizeof(g_ServiceStatus));
+    g_ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+    g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+    g_ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
+    g_ServiceStatus.dwWin32ExitCode = 0;
+    g_ServiceStatus.dwServiceSpecificExitCode = 0;
+    g_ServiceStatus.dwCheckPoint = 0;
+
+    if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
+    {
+        OutputDebugString(L"MyService: SetServiceStatus returned error");
+    }
+
+    // 创建停止事件
+    g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (g_ServiceStopEvent == NULL)
+    {
+        g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+        g_ServiceStatus.dwWin32ExitCode = GetLastError();
+        SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+        return;
+    }
+
+    // 报告运行状态
+    g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
+    g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+    g_ServiceStatus.dwCheckPoint = 0;
+    g_ServiceStatus.dwWaitHint = 0;
+
+    if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
+    {
+        OutputDebugString(L"MyService: SetServiceStatus returned error");
+    }
+
+    // 服务主循环
+    while (WaitForSingleObject(g_ServiceStopEvent, 1000) != WAIT_OBJECT_0)
+    {
+        
+    }
+
+    // 清理工作
+    CloseHandle(g_ServiceStopEvent);
+
+    g_ServiceStatus.dwControlsAccepted = 0;
+    g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+    g_ServiceStatus.dwWin32ExitCode = 0;
+    g_ServiceStatus.dwCheckPoint = 3;
+
+    SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
 }
