@@ -23,6 +23,9 @@
     <ClInclude Include="resource.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="auth.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="main.rc">
@@ -33,5 +36,10 @@
     <Image Include="z2y55-wb50l-001.ico">
       <Filter>资源文件</Filter>
     </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="phingerpgen.ps1">
+      <Filter>资源文件</Filter>
+    </None>
   </ItemGroup>
 </Project>

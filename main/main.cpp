@@ -2,15 +2,20 @@
 #include <thread>
 #include<string>
 #include <iostream>
+#include <WinTrust.h>
 #include <sddl.h>
 #include <signal.h>
 #include <Cfgmgr32.h>
 #include<initguid.h>
+#include <softpub.h>
+#include <iomanip>
+#include <sstream>
 #include<Usbiodef.h>
 #include "../HookWindowsClose/dllmain.h"
 #include "../toast/wintoastlib.h"
 #include <functional>
 #include<Knownfolders.h>
+#include"auth.h"
 #include <mutex>
 #include <queue>
 
@@ -886,6 +891,7 @@ bool AdminPiep() {
                 LocalFree(pSD);
                 continue;
             }
+            DisconnectNamedPipe(piep);
             HANDLE chwd = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
             if (chwd == nullptr) {
                 LocalFree(pSD);
@@ -893,7 +899,115 @@ bool AdminPiep() {
             }
             WCHAR path[MAX_PATH];
             GetModuleFileNameEx(chwd, NULL, path, MAX_PATH);
-            DisconnectNamedPipe(piep);
+            WINTRUST_FILE_INFO finfo = { 0 };
+            finfo.cbStruct = sizeof(WINTRUST_FILE_INFO);
+            finfo.pcwszFilePath = path;
+            finfo.hFile = NULL;
+            finfo.pgKnownSubject = NULL;
+            WINTRUST_DATA td = { 0 };
+            td.cbStruct = sizeof(WINTRUST_DATA);
+            td.pPolicyCallbackData = NULL;
+            td.pSIPClientData = NULL;
+            td.dwUIChoice = WTD_UI_NONE;
+            td.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN;
+            td.dwUnionChoice = WTD_CHOICE_FILE;
+            td.pFile = &finfo;
+            td.dwStateAction = WTD_STATEACTION_VERIFY;
+            td.hWVTStateData = NULL;
+            td.pwszURLReference = NULL;
+            td.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN;
+            td.dwUIContext = WTD_UICONTEXT_EXECUTE;
+            GUID vfi = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+            if (WinVerifyTrust(NULL, &vfi, &td) != ERROR_SUCCESS) {
+                td.dwStateAction = WTD_STATEACTION_CLOSE;
+                WinVerifyTrust(nullptr, &vfi, &td);
+                LocalFree(pSD);
+                continue;
+            }
+            std::wstring fingerp = L"";
+            HANDLE hFile = CreateFile(path,
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                NULL,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                NULL);
+            if (hFile == INVALID_HANDLE_VALUE) {
+                continue;
+            }
+            HANDLE hMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+            if (!hMapping) {
+                CloseHandle(hFile);
+                continue;
+            }
+            LPVOID pData = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
+            if (!pData) {
+                CloseHandle(hMapping);
+                CloseHandle(hFile);
+                continue;
+            }
+
+            DWORD fileSize = GetFileSize(hFile, NULL);
+            HCERTSTORE hStore = NULL;
+            HCRYPTMSG hMsg = NULL;
+            if (CryptQueryObject(CERT_QUERY_OBJECT_BLOB, pData, fileSize,
+                CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED,
+                CERT_QUERY_FORMAT_FLAG_BINARY, 0,
+                NULL, NULL, NULL, &hStore, &hMsg)) {
+                DWORD signerCount = 0;
+                DWORD signerInfoSize = sizeof(signerCount);
+                if (CryptMsgGetParam(hMsg, CMSG_SIGNER_COUNT_PARAM, 0,
+                    &signerCount, &signerInfoSize)) {
+
+                    for (DWORD i = 0; i < signerCount; i++) {
+                        // 获取签名者证书
+                        PCERT_INFO signerInfo = NULL;
+                        DWORD signerInfoSize = 0;
+
+                        if (CryptMsgGetParam(hMsg, CMSG_SIGNER_INFO_PARAM, i,
+                            NULL, &signerInfoSize)) {
+
+                            signerInfo = (PCERT_INFO)LocalAlloc(LPTR, signerInfoSize);
+                            if (signerInfo && CryptMsgGetParam(hMsg, CMSG_SIGNER_INFO_PARAM, i,
+                                signerInfo, &signerInfoSize)) {
+
+                                // 在证书存储中查找证书
+                                PCCERT_CONTEXT pCertContext = CertFindCertificateInStore(
+                                    hStore, CERT_FIND_ANY, 0, CERT_FIND_SUBJECT_CERT,
+                                    signerInfo, NULL);
+
+                                if (pCertContext) {
+                                    // 获取证书指纹
+                                    DWORD thumbprintSize = 0;
+                                    if (CertGetCertificateContextProperty(pCertContext,
+                                        CERT_SHA1_HASH_PROP_ID, NULL, &thumbprintSize)) {
+
+                                        std::vector<BYTE> thumbprintBytes(thumbprintSize);
+                                        if (CertGetCertificateContextProperty(pCertContext,
+                                            CERT_SHA1_HASH_PROP_ID, thumbprintBytes.data(),
+                                            &thumbprintSize)) {
+
+                                            std::wstringstream ss;
+                                            for (DWORD j = 0; j < thumbprintSize; j++) {
+                                                ss << std::hex << std::setw(2) << std::setfill(L'0')
+                                                    << static_cast<int>(thumbprintBytes[j]);
+                                            }
+                                            fingerp = ss.str();
+                                        }
+                                    }
+                                    CertFreeCertificateContext(pCertContext);
+                                }
+                            }
+                            if (signerInfo) LocalFree(signerInfo);
+                        }
+                    }
+                }
+            }
+            if (pData) UnmapViewOfFile(pData);
+            if (hMapping) CloseHandle(hMapping);
+            if (hFile) CloseHandle(hFile);
+            if (hMsg) CryptMsgClose(hMsg);
+            if (hStore) CertCloseStore(hStore, 0);
         }
     }
     LocalFree(pSD);

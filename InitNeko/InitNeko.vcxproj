@@ -121,9 +121,20 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <PreBuildEvent>
+      <Command>makecert.exe -sv "$(SolutionDir)root.pvk" -ss SubjectName -n "CN=XYMH,E=ahxymha@outlook.com,C=China" -r "$(SolutionDir)root.cer"
+cert2spc.exe "$(SolutionDir)root.cer" "$(SolutionDir)root.spc"
+pvk2pfx /pvk "$(SolutionDir)root.pvk" /spc "$(SolutionDir)root.cer" /pfx "$(SolutionDir)root.pfx /f</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="CertGen.ps1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="auth.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
