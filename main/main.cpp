@@ -15,6 +15,7 @@
 #include "../toast/wintoastlib.h"
 #include <functional>
 #include<Knownfolders.h>
+#include <cwchar>
 #include"auth.h"
 #include <mutex>
 #include <queue>
@@ -859,6 +860,67 @@ VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode)
     }
 }
 
+bool RunAdminProgram(DWORD pid) {
+    HANDLE hToken = NULL;
+    HANDLE hPrimaryToken = NULL;
+    HANDLE hProcess = NULL;
+    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+    if (!hProcess) {
+        return false;
+    }
+    if (!OpenProcessToken(hProcess, TOKEN_DUPLICATE | TOKEN_QUERY, &hToken)) {
+        CloseHandle(hProcess);
+        return false;
+    }
+    if (!DuplicateTokenEx(hToken, TOKEN_ALL_ACCESS, NULL,
+        SecurityImpersonation, TokenPrimary, &hPrimaryToken)) {
+        CloseHandle(hToken);
+        CloseHandle(hProcess);
+        return false;
+    }
+    TOKEN_ELEVATION_TYPE elevationType;
+    DWORD dwSize;
+    if (GetTokenInformation(hToken, TokenElevationType,
+        &elevationType, sizeof(elevationType), &dwSize)) {
+        if (elevationType == TokenElevationTypeLimited) {
+            // 启用管理员权限
+            HANDLE hLinkedToken = NULL;
+            if (GetTokenInformation(hToken, TokenLinkedToken,
+                &hLinkedToken, sizeof(hLinkedToken), &dwSize)) {
+                DuplicateTokenEx(hLinkedToken, TOKEN_ALL_ACCESS, NULL,
+                    SecurityImpersonation, TokenPrimary, &hPrimaryToken);
+                CloseHandle(hLinkedToken);
+            }
+        }
+    }
+    wchar_t processPath[MAX_PATH];
+    if (GetModuleFileNameExW(hProcess, NULL, processPath, MAX_PATH)) {
+        // 创建提升的进程
+        STARTUPINFOW si = { sizeof(si) };
+        PROCESS_INFORMATION pi = { 0 };
+
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_SHOW;
+
+        // 使用提升的令牌创建新进程
+        if (CreateProcessAsUserW(hPrimaryToken, NULL, processPath,
+            NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+
+            CloseHandle(hPrimaryToken);
+            CloseHandle(hToken);
+            CloseHandle(hProcess);
+            return true;
+        }
+    }
+
+    if (hPrimaryToken) CloseHandle(hPrimaryToken);
+    if (hToken) CloseHandle(hToken);
+    if (hProcess) CloseHandle(hProcess);
+    return false;
+}
+
 bool AdminPiep() {
     PSECURITY_DESCRIPTOR pSD = nullptr;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -899,6 +961,7 @@ bool AdminPiep() {
             }
             WCHAR path[MAX_PATH];
             GetModuleFileNameEx(chwd, NULL, path, MAX_PATH);
+            CloseHandle(chwd);
             WINTRUST_FILE_INFO finfo = { 0 };
             finfo.cbStruct = sizeof(WINTRUST_FILE_INFO);
             finfo.pcwszFilePath = path;
@@ -1008,6 +1071,17 @@ bool AdminPiep() {
             if (hFile) CloseHandle(hFile);
             if (hMsg) CryptMsgClose(hMsg);
             if (hStore) CertCloseStore(hStore, 0);
+            if (fingerp.size() != CERTIFICATE_THUMBPRINT_LENGTH)continue;
+            bool yet = true;
+            for (int i = 0; i < fingerp.size(); i++) {
+                if (std::tolower(fingerp.at(i)) != std::tolower(CERTIFICATE_THUMBPRINT[i])) {
+                    break;
+                    yet = false;
+                }
+            }
+            if (yet) {
+
+            }
         }
     }
     LocalFree(pSD);
