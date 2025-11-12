@@ -32,4 +32,5 @@ protected:
 	DECLARE_MESSAGE_MAP()
 public:
 	CListCtrl SubSelctor;
+	CEdit FileName;
 };

@@ -30,6 +30,7 @@ void CCopyDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_LIST1, SubSelctor);
+	DDX_Control(pDX, IDC_EDIT1, FileName);
 }
 
 BEGIN_MESSAGE_MAP(CCopyDlg, CDialog)
@@ -49,6 +50,8 @@ BOOL CCopyDlg::OnInitDialog()
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 	
+	this->SetWindowTextW(L"Neko");
+
 	SubSelctor.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
 	SubSelctor.InsertColumn(0, L"学科", LVCFMT_CENTER, 100);
 	SubSelctor.InsertColumn(1, L"路径", LVCFMT_LEFT, 400);
@@ -64,7 +67,7 @@ BOOL CCopyDlg::OnInitDialog()
 		SubSelctor.SetItemText(n_item, 1, subPath.c_str());
 	}
 	
-
+	FileName.SetWindowTextW(L"Example");
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
