@@ -1,5 +1,4 @@
-﻿
-// CopyDialog.h: PROJECT_NAME 应用程序的主头文件
+﻿// CopyDialog.h: CopyDialog DLL 的主标头文件
 //
 
 #pragma once
@@ -10,10 +9,22 @@
 
 #include "resource.h"		// 主符号
 
+#pragma once
 
-// CCopyDialogApp:
-// 有关此类的实现，请参阅 CopyDialog.cpp
+
+#define MYDIALOGDLL_API __declspec(dllexport)
+
+
+// 导出函数声明
+extern "C" {
+	MYDIALOGDLL_API BOOL ShowMyDialog(HWND hParent = NULL);
+}
+
+// CCopyDialogApp
+// 有关此类实现的信息，请参阅 CopyDialog.cpp
 //
+
+
 
 class CCopyDialogApp : public CWinApp
 {
@@ -24,9 +35,5 @@ public:
 public:
 	virtual BOOL InitInstance();
 
-// 实现
-
 	DECLARE_MESSAGE_MAP()
 };
-
-extern CCopyDialogApp theApp;

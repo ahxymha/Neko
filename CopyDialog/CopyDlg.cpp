@@ -1,57 +1,54 @@
-﻿
-// CopyDlg.cpp: 实现文件
+﻿// CopyDlg.cpp: 实现文件
 //
 
 #include "pch.h"
-#include "framework.h"
 #include "CopyDialog.h"
-#include "CopyDlg.h"
 #include "afxdialogex.h"
-
-#ifdef _DEBUG
-#define new DEBUG_NEW
-#endif
+#include "CopyDlg.h"
 #include <vector>
 #include <string>
-#include <algorithm>
 
 
-// CCopyDlg 对话框
+// CopyDlg 对话框
 
+IMPLEMENT_DYNAMIC(CopyDlg, CDialog)
 
-
-CCopyDlg::CCopyDlg(CWnd* pParent /*=nullptr*/)
-	: CDialog(IDD_COPYDIALOG_DIALOG, pParent)
+CopyDlg::CopyDlg(CWnd* pParent /*=nullptr*/)
+	: CDialog(IDD_DIALOG1, pParent)
 {
-	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+
 }
 
-void CCopyDlg::DoDataExchange(CDataExchange* pDX)
+CopyDlg::~CopyDlg()
+{
+}
+
+void CopyDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
-	DDX_Control(pDX, IDC_LIST1, SubSelctor);
+	DDX_Control(pDX, IDC_EDIT1, fileName);
+	DDX_Control(pDX, IDC_LIST1, Selector);
+	DDX_Control(pDX, IDOK, done);
 }
 
-BEGIN_MESSAGE_MAP(CCopyDlg, CDialog)
+BEGIN_MESSAGE_MAP(CopyDlg, CDialog)
+	ON_WM_CREATE()
 	ON_WM_PAINT()
-	ON_WM_QUERYDRAGICON()
+	ON_WM_SIZE()
+	ON_WM_CLOSE()
+	ON_BN_CLICKED(IDOK, OnClose)
 END_MESSAGE_MAP()
 
-
-// CCopyDlg 消息处理程序
-
-BOOL CCopyDlg::OnInitDialog()
-{
+BOOL CopyDlg::OnInitDialog() {
 	CDialog::OnInitDialog();
-
 	// 设置此对话框的图标。  当应用程序主窗口不是对话框时，框架将自动
 	//  执行此操作
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
-	
-	SubSelctor.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-	SubSelctor.InsertColumn(0, L"学科", LVCFMT_CENTER, 100);
-	SubSelctor.InsertColumn(1, L"路径", LVCFMT_LEFT, 400);
+
+	Selector.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+	Selector.InsertColumn(0, L"学科", LVCFMT_CENTER, 100);
+	Selector.InsertColumn(1, L"路径", LVCFMT_LEFT, 400);
 	// TODO: 在此添加额外的初始化代码
 
 	std::vector<std::wstring> subjects = { L"语文",L"数学" ,L"英语" ,L"物理" ,L"历史" ,L"化学" ,L"政治" ,L"生物" ,L"地理" ,L"信息技术" ,L"生涯规划" };
@@ -59,21 +56,18 @@ BOOL CCopyDlg::OnInitDialog()
 
 	for (auto& subject : subjects) {
 		int n_item;
-		n_item = SubSelctor.InsertItem(0, subject.c_str());
+		n_item = Selector.InsertItem(0, subject.c_str());
 		std::wstring subPath = L"D:\\老师文件\\" + subject;
-		SubSelctor.SetItemText(n_item, 1, subPath.c_str());
+		Selector.SetItemText(n_item, 1, subPath.c_str());
 	}
-	
 
 
-	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
+
+	return TRUE;
 }
 
-// 如果向对话框添加最小化按钮，则需要下面的代码
-//  来绘制该图标。  对于使用文档/视图模型的 MFC 应用程序，
-//  这将由框架自动完成。
 
-void CCopyDlg::OnPaint()
+void CopyDlg::OnPaint()
 {
 	if (IsIconic())
 	{
@@ -98,10 +92,9 @@ void CCopyDlg::OnPaint()
 	}
 }
 
-//当用户拖动最小化窗口时系统调用此函数取得光标
-//显示。
-HCURSOR CCopyDlg::OnQueryDragIcon()
+HCURSOR CopyDlg::OnQueryDragIcon()
 {
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
+// CopyDlg 消息处理程序
