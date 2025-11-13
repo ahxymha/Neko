@@ -31,6 +31,7 @@ protected:
 	afx_msg HCURSOR OnQueryDragIcon();
 	DECLARE_MESSAGE_MAP()
 public:
+	std::wstring SN;
 	CListCtrl SubSelctor;
 	CEdit FileName;
 };
