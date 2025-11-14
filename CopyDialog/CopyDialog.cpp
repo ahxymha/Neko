@@ -81,7 +81,7 @@ int Usermain()
 		sei.lpVerb = L"runas";
 		sei.lpFile = szPath;
 		sei.nShow = SW_SHOW;
-		if (!(&sei)) {
+		if (!ShellExecuteEx(&sei)) {
 			if (GetLastError() == ERROR_CANCELLED) {
 				std::wcerr << L"用户取消了管理员权限请求。" << std::endl;
 				exit(-1);
@@ -90,6 +90,9 @@ int Usermain()
 				std::wcerr << L"提升权限失败，错误代码: " << GetLastError() << std::endl;
 				exit(EXIT_FAILURE);
 			}
+		}
+		else {
+			exit(0);
 		}
 	}
 	else {
@@ -153,7 +156,7 @@ void DialogProc() {
 
 BOOL CCopyDialogApp::InitInstance()
 {
-	if (!isRunningAsAdmin) {
+	if (!isRunningAsAdmin()) {
 		Usermain();
 	}
 	std::thread notice(Adminmain);

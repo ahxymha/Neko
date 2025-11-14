@@ -56,7 +56,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="E:\work\HookWindowsClose\main\z2y55-wb50l-001.ico">
+    <Image Include="z2y55-wb50l-001.ico">
       <Filter>资源文件</Filter>
     </Image>
   </ItemGroup>
