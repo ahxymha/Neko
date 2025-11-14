@@ -2,8 +2,9 @@
 // Microsoft Visual C++ 生成的包含文件。
 // 供 CopyDialog.rc 使用
 //
+#define DR_MAINFRAME                    5
+#define IDR_MAINFRAME                   5
 #define IDD_COPYDIALOG_DIALOG           102
-#define IDI_ICON1                       132
 #define IDC_LIST1                       1000
 #define IDC_EDIT1                       1001
 

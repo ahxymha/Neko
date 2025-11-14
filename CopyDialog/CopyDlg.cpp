@@ -19,6 +19,17 @@
 // CCopyDlg 对话框
 
 
+std::wstring DsFolderPath() {
+	PWSTR path = nullptr;
+	HRESULT result = SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &path);
+	std::wstring downloadsPath;
+	if (SUCCEEDED(result) && path != nullptr) {
+		downloadsPath = path;
+		CoTaskMemFree(path);
+	}
+	return downloadsPath;
+}
+std::wstring dsp = DsFolderPath();
 
 CCopyDlg::CCopyDlg(CWnd* pParent /*=nullptr*/)
 	: CDialog(IDD_COPYDIALOG_DIALOG, pParent)
@@ -63,7 +74,7 @@ BOOL CCopyDlg::OnInitDialog()
 	for (auto& subject : subjects) {
 		int n_item;
 		n_item = SubSelctor.InsertItem(0, subject.c_str());
-		std::wstring subPath = L"D:\\老师文件\\" + subject;
+		std::wstring subPath = dsp + L"\\课件\\" + subject;
 		SubSelctor.SetItemText(n_item, 1, subPath.c_str());
 	}
 	

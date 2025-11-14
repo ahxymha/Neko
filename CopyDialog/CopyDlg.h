@@ -3,6 +3,7 @@
 //
 
 #pragma once
+#include<string>
 
 
 // CCopyDlg 对话框
