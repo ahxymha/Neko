@@ -113,6 +113,44 @@ bool isRunningAsAdmin() {
 	return isAdmin == TRUE;
 }
 
+std::wstring DsFolderPath() {
+	PWSTR path = nullptr;
+	HRESULT result = SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &path);
+	std::wstring downloadsPath;
+	if (SUCCEEDED(result) && path != nullptr) {
+		downloadsPath = path;
+		CoTaskMemFree(path);
+	}
+	return downloadsPath;
+}
+
+void DialogProc() {
+	for (;;) {
+		std::wstring fPath;
+		dswatch.filequeue.wait(fPath);
+		CCopyDlg dlg;
+		dlg.SN = fPath;
+		dlg.dsp = DsFolderPath();
+		INT_PTR nResponse = dlg.DoModal();
+		if (nResponse == IDOK)
+		{
+			CreateDirectory(dlg.TargetPath.c_str(), NULL);
+			MoveFileEx((dlg.dsp + L"\\" + dlg.SN).c_str(), (dlg.TargetPath + L"\\" + dlg.SN).c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+			SHELLEXECUTEINFO sei = { 0 };
+			sei.cbSize = sizeof(SHELLEXECUTEINFO);
+			sei.lpVerb = L"explore";
+			sei.lpFile = dlg.TargetPath.c_str();
+			sei.nShow = SW_SHOW;
+			ShellExecuteEx(&sei);
+		}
+		else if (nResponse == -1)
+		{
+			TRACE(traceAppMsg, 0, "警告: 对话框创建失败，应用程序将意外终止。\n");
+			TRACE(traceAppMsg, 0, "警告: 如果您在对话框上使用 MFC 控件，则无法 #define _AFX_NO_MFC_CONTROLS_IN_DIALOGS。\n");
+		}
+	}
+}
+
 BOOL CCopyDialogApp::InitInstance()
 {
 	if (!isRunningAsAdmin) {
@@ -147,40 +185,19 @@ BOOL CCopyDialogApp::InitInstance()
 	// 更改用于存储设置的注册表项
 	// TODO: 应适当修改该字符串，
 	// 例如修改为公司或组织名
-	SetRegistryKey(_T("应用程序向导生成的本地应用程序"));
+	SetRegistryKey(_T("Xymh Neko"));
 
+	std::thread Dialog(DialogProc);
+	Dialog.join();
 
+	
 
-	for(;;){
-		std::wstring fPath;
-		dswatch.filequeue.wait(fPath);
-		CCopyDlg dlg;
-        dlg.SN = fPath;
-		m_pMainWnd = &dlg;
-		INT_PTR nResponse = dlg.DoModal();
-		if (nResponse == IDOK)
-		{
-			// TODO: 在此放置处理何时用
-			//  “确定”来关闭对话框的代码
-		}
-		else if (nResponse == IDCANCEL)
-		{
-			// TODO: 在此放置处理何时用
-			//  “取消”来关闭对话框的代码
-		}
-		else if (nResponse == -1)
-		{
-			TRACE(traceAppMsg, 0, "警告: 对话框创建失败，应用程序将意外终止。\n");
-			TRACE(traceAppMsg, 0, "警告: 如果您在对话框上使用 MFC 控件，则无法 #define _AFX_NO_MFC_CONTROLS_IN_DIALOGS。\n");
-		}
-	}
-
-#if !defined(_AFXDLL) && !defined(_AFX_NO_MFC_CONTROLS_IN_DIALOGS)
-	ControlBarCleanUp();
-#endif
+//#if !defined(_AFXDLL) && !defined(_AFX_NO_MFC_CONTROLS_IN_DIALOGS)
+//	ControlBarCleanUp();
+//#endif
 
 	// 由于对话框已关闭，所以将返回 FALSE 以便退出应用程序，
 	//  而不是启动应用程序的消息泵。
-	return FALSE;
+	return TRUE;
 }
 

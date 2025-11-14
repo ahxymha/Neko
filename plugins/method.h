@@ -242,9 +242,8 @@ private:
             m_directoryHandle,
             buffer.data(),
             BUFFER_SIZE,
-            TRUE,  // 监控子目录
+            FALSE,  // 监控子目录
             FILE_NOTIFY_CHANGE_FILE_NAME |    // 文件创建、删除、重命名
-            FILE_NOTIFY_CHANGE_DIR_NAME |     // 目录创建、删除、重命名
             FILE_NOTIFY_CHANGE_ATTRIBUTES |   // 属性变化
             FILE_NOTIFY_CHANGE_SIZE |         // 文件大小变化
             FILE_NOTIFY_CHANGE_LAST_WRITE |   // 最后写入时间

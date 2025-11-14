@@ -19,17 +19,7 @@
 // CCopyDlg 对话框
 
 
-std::wstring DsFolderPath() {
-	PWSTR path = nullptr;
-	HRESULT result = SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &path);
-	std::wstring downloadsPath;
-	if (SUCCEEDED(result) && path != nullptr) {
-		downloadsPath = path;
-		CoTaskMemFree(path);
-	}
-	return downloadsPath;
-}
-std::wstring dsp = DsFolderPath();
+
 
 CCopyDlg::CCopyDlg(CWnd* pParent /*=nullptr*/)
 	: CDialog(IDD_COPYDIALOG_DIALOG, pParent)
@@ -61,7 +51,8 @@ BOOL CCopyDlg::OnInitDialog()
 	//  执行此操作
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
-	
+
+	this->SetWindowPos(&wndTopMost, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
 	this->SetWindowTextW(L"Neko");
 
 	SubSelctor.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
@@ -71,7 +62,6 @@ BOOL CCopyDlg::OnInitDialog()
 
 	std::vector<std::wstring> subjects = { L"语文",L"数学" ,L"英语" ,L"物理" ,L"历史" ,L"化学" ,L"政治" ,L"生物" ,L"地理" ,L"信息技术" ,L"生涯规划" };
 	std::reverse(subjects.begin(), subjects.end());
-
 	for (auto& subject : subjects) {
 		int n_item;
 		n_item = SubSelctor.InsertItem(0, subject.c_str());
@@ -124,6 +114,24 @@ HCURSOR CCopyDlg::OnQueryDragIcon()
 void CCopyDlg::OnNMClickList1(NMHDR* pNMHDR, LRESULT* pResult)
 {
 	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
-	// TODO: 在此添加控件通知处理程序代码
+	NMLISTVIEW* pNMListView = (NMLISTVIEW*)pNMHDR;
+	if (pNMListView->iItem != -1) {
+		this->TargetPath = SubSelctor.GetItemText(pNMListView->iItem, 1);
+	}
 	*pResult = 0;
+}
+
+
+void CCopyDlg::OnOK()
+{
+	if (!UpdateData(TRUE))
+	{
+		return;
+	}
+	if (TargetPath.empty()) {
+		MessageBox(L"请选择您的目标路径", L"目标路径不能为空", MB_ICONERROR | MB_OK);
+		return;
+	}
+
+	EndDialog(IDOK);
 }
