@@ -363,5 +363,4 @@ public:
 
 extern "C" {
     PLUGINS_API int Adminmain();
-    PLUGINS_API int Usermain();
 }

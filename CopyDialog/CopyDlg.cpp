@@ -47,6 +47,7 @@ void CCopyDlg::DoDataExchange(CDataExchange* pDX)
 BEGIN_MESSAGE_MAP(CCopyDlg, CDialog)
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
+	ON_NOTIFY(NM_CLICK, IDC_LIST1, &CCopyDlg::OnNMClickList1)
 END_MESSAGE_MAP()
 
 
@@ -74,11 +75,11 @@ BOOL CCopyDlg::OnInitDialog()
 	for (auto& subject : subjects) {
 		int n_item;
 		n_item = SubSelctor.InsertItem(0, subject.c_str());
-		std::wstring subPath = dsp + L"\\课件\\" + subject;
+		std::wstring subPath = dsp + L"\\" + subject;
 		SubSelctor.SetItemText(n_item, 1, subPath.c_str());
 	}
 	
-	FileName.SetWindowTextW(L"Example");
+	FileName.SetWindowTextW(SN.c_str());
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -119,3 +120,10 @@ HCURSOR CCopyDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
+
+void CCopyDlg::OnNMClickList1(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	// TODO: 在此添加控件通知处理程序代码
+	*pResult = 0;
+}

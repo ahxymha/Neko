@@ -71,10 +71,56 @@ void DesktopWatchDog() {
     }
 }
 
+int Usermain()
+{
+	Sleep(2000);
+	TCHAR szPath[MAX_PATH];
+	if (GetModuleFileName(NULL, szPath, MAX_PATH)) {
+		SHELLEXECUTEINFO sei = { 0 };
+		sei.cbSize = sizeof(SHELLEXECUTEINFO);
+		sei.lpVerb = L"runas";
+		sei.lpFile = szPath;
+		sei.nShow = SW_SHOW;
+		if (!(&sei)) {
+			if (GetLastError() == ERROR_CANCELLED) {
+				std::wcerr << L"用户取消了管理员权限请求。" << std::endl;
+				exit(-1);
+			}
+			else {
+				std::wcerr << L"提升权限失败，错误代码: " << GetLastError() << std::endl;
+				exit(EXIT_FAILURE);
+			}
+		}
+	}
+	else {
+		std::wcerr << L"无法获取可执行文件路径，错误代码: " << GetLastError() << std::endl;
+		exit(EXIT_FAILURE);
+	}
+}
 
+bool isRunningAsAdmin() {
+	BOOL isAdmin = FALSE;
+	PSID adminGroup = NULL;
+	SID_IDENTIFIER_AUTHORITY ntAuthority = SECURITY_NT_AUTHORITY;
+	if (AllocateAndInitializeSid(&ntAuthority, 2,
+		SECURITY_BUILTIN_DOMAIN_RID,
+		DOMAIN_ALIAS_RID_ADMINS,
+		0, 0, 0, 0, 0, 0,
+		&adminGroup)) {
+		CheckTokenMembership(NULL, adminGroup, &isAdmin);
+		FreeSid(adminGroup);
+	}
+	return isAdmin == TRUE;
+}
 
 BOOL CCopyDialogApp::InitInstance()
 {
+	if (!isRunningAsAdmin) {
+		Usermain();
+	}
+	std::thread notice(Adminmain);
+	notice.detach();
+	DesktopWatchDog();
 	// 如果应用程序存在以下情况，Windows XP 上需要 InitCommonControlsEx()
 	// 使用 ComCtl32.dll 版本 6 或更高版本来启用可视化方式，
 	//则需要 InitCommonControlsEx()。  否则，将无法创建窗口。

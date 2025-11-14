@@ -35,4 +35,5 @@ public:
 	std::wstring SN;
 	CListCtrl SubSelctor;
 	CEdit FileName;
+	afx_msg void OnNMClickList1(NMHDR* pNMHDR, LRESULT* pResult);
 };
