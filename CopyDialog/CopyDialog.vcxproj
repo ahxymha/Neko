@@ -185,6 +185,8 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CConfigDlg.h" />
+    <ClInclude Include="CNotifySetting.h" />
     <ClInclude Include="CopyDialog.h" />
     <ClInclude Include="CopyDlg.h" />
     <ClInclude Include="framework.h" />
@@ -193,6 +195,8 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CConfigDlg.cpp" />
+    <ClCompile Include="CNotifySetting.cpp" />
     <ClCompile Include="CopyDialog.cpp" />
     <ClCompile Include="CopyDlg.cpp" />
     <ClCompile Include="pch.cpp">
