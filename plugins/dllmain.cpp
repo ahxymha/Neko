@@ -175,7 +175,7 @@ bool ShowToastNotification(NotificationMode mode) {
             WinToastTemplate _template = WinToastTemplate(WinToastTemplate::Text04);
             _template.setTextField(L"8(:D", WinToastTemplate::FirstLine);
             _template.setTextField(L"哇，这是什么东西", WinToastTemplate::SecondLine);
-            _template.setTextField(L"让我看看，原来是USB小盆友啊", WinToastTemplate::ThirdLine);
+            _template.setTextField(L"", WinToastTemplate::ThirdLine);
             // 设置过期时间（毫秒）
             _template.setDuration(WinToastTemplate::Duration::Short);
             if (WinToast::instance()->showToast(_template, new CustomHandler()) < 0) {
@@ -189,7 +189,7 @@ bool ShowToastNotification(NotificationMode mode) {
         else if (mode == USB_OUT) {
             WinToastTemplate _template = WinToastTemplate(WinToastTemplate::Text04);
             _template.setTextField(L":(", WinToastTemplate::FirstLine);
-            _template.setTextField(L"不要带走可爱的USB小盆友啊", WinToastTemplate::SecondLine);
+            _template.setTextField(L"不要离开我", WinToastTemplate::SecondLine);
             _template.setTextField(L"呜呜呜", WinToastTemplate::ThirdLine);
             // 设置过期时间（毫秒）
             _template.setDuration(WinToastTemplate::Duration::Short);
