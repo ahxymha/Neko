@@ -28,6 +28,9 @@
 
 #include <afxcontrolbars.h>     // MFC 支持功能区和控制条
 
+#include <commctrl.h>
+#pragma comment(lib, "comctl32.lib")
+
 
 
 

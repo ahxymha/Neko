@@ -54,8 +54,27 @@ BOOL CConfigDlg::OnInitDialog() {
 	CRect winRect;
 	this->m_tab.AdjustRect(FALSE, winRect);
 	this->m_dt->MoveWindow(winRect);
-	this->m_tab.SetCurSel(0);
 	this->m_dt->ShowWindow(SW_SHOW);
+	this->m_tab.SetCurSel(0);
+	if (m_tab.GetSafeHwnd()) {
+		m_tab.BringWindowToTop();
+		this->m_dt->BringWindowToTop();
+	}
+	return TRUE;
+}
+
+
+BOOL CConfigDlg::PreTranslateMessage(MSG* pMsg)
+{
+    // 在消息处理前强制刷新显示
+    if (pMsg->message == WM_PAINT) {
+        if (m_tab.GetSafeHwnd() && !m_tab.IsWindowVisible()) {
+            TRACE0("强制显示选项卡控件\n");
+            m_tab.ShowWindow(SW_SHOW);
+            m_tab.Invalidate(TRUE);
+        }
+    }
+    return CDialog::PreTranslateMessage(pMsg);
 }
 
 BEGIN_MESSAGE_MAP(CConfigDlg, CDialog)

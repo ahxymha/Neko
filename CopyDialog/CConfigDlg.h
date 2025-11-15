@@ -40,4 +40,5 @@ public:
 	afx_msg void OnBnClickedRestart();
 	afx_msg void OnBnClickedStart();
 	afx_msg void OnBnClickedChangePath();
+	virtual BOOL PreTranslateMessage(MSG* pMsg);
 };

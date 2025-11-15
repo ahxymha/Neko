@@ -8,6 +8,7 @@
 #include<iostream>
 #include "CopyDialog.h"
 #include "CopyDlg.h"
+#include "CConfigDlg.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -156,26 +157,26 @@ void DialogProc() {
 
 BOOL CCopyDialogApp::InitInstance()
 {
-	if (!isRunningAsAdmin()) {
+	/*if (!isRunningAsAdmin()) {
 		Usermain();
 	}
 	std::thread notice(Adminmain);
 	notice.detach();
-	DesktopWatchDog();
+	DesktopWatchDog();*/
+	INITCOMMONCONTROLSEX InitCtrls;
+	InitCtrls.dwSize = sizeof(InitCtrls);
+	// 设置要初始化的公共控件类
+	InitCtrls.dwICC = ICC_WIN95_CLASSES | ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES;
+	InitCommonControlsEx(&InitCtrls);
 	// 如果应用程序存在以下情况，Windows XP 上需要 InitCommonControlsEx()
 	// 使用 ComCtl32.dll 版本 6 或更高版本来启用可视化方式，
 	//则需要 InitCommonControlsEx()。  否则，将无法创建窗口。
-	INITCOMMONCONTROLSEX InitCtrls;
-	InitCtrls.dwSize = sizeof(InitCtrls);
-	// 将它设置为包括所有要在应用程序中使用的
-	// 公共控件类。
-	InitCtrls.dwICC = ICC_WIN95_CLASSES;
-	InitCommonControlsEx(&InitCtrls);
 
 	CWinApp::InitInstance();
 
 
 	AfxEnableControlContainer();
+	AfxInitRichEdit2();
 
 
 	// 激活“Windows Native”视觉管理器，以便在 MFC 控件中启用主题
@@ -189,9 +190,11 @@ BOOL CCopyDialogApp::InitInstance()
 	// TODO: 应适当修改该字符串，
 	// 例如修改为公司或组织名
 	SetRegistryKey(_T("Xymh Neko"));
-
-	std::thread Dialog(DialogProc);
-	Dialog.join();
+	CConfigDlg cfgdlg;
+	m_pMainWnd = &cfgdlg;
+	cfgdlg.DoModal();
+	/*std::thread Dialog(DialogProc);
+	Dialog.join();*/
 
 	
 
@@ -201,6 +204,6 @@ BOOL CCopyDialogApp::InitInstance()
 
 	// 由于对话框已关闭，所以将返回 FALSE 以便退出应用程序，
 	//  而不是启动应用程序的消息泵。
-	return TRUE;
+	return FALSE;
 }
 

@@ -40,5 +40,11 @@ void CNotifySetting::OnBnClickedSave()
 	// TODO: 在此添加控件通知处理程序代码
 }
 void CNotifySetting::OnShowWindow(BOOL bShow, UINT nStatus) {
-	// TODO: 在此添加控件通知处理程序代码
+	CDialog::OnShowWindow(bShow, nStatus);
+
+	if (bShow) {
+		// 显示时强制重绘
+		this->Invalidate(TRUE);
+		this->UpdateWindow();
+	}
 }
