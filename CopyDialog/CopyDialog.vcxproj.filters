@@ -33,10 +33,10 @@
     <ClInclude Include="pch.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="CConfigDlg.h">
+    <ClInclude Include="CNotifySetting.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="CNotifySetting.h">
+    <ClInclude Include="CConfigDlg.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
@@ -50,10 +50,10 @@
     <ClCompile Include="pch.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="CConfigDlg.cpp">
+    <ClCompile Include="CNotifySetting.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="CNotifySetting.cpp">
+    <ClCompile Include="CConfigDlg.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

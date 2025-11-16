@@ -1,6 +1,5 @@
 ﻿#pragma once
 #include "afxdialogex.h"
-#include "CNotifySetting.h"
 
 
 // CConfigDlg 对话框
@@ -20,25 +19,37 @@ public:
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV 支持
-	virtual BOOL OnInitDialog();
 
 	DECLARE_MESSAGE_MAP()
-public:
-	CNotifySetting* m_dt = nullptr;
 	CTabCtrl m_tab;
 	CEdit m_fpath;
-	CButton m_changef;
-	CButton m_mdf;
-	CButton m_nwc;
-	CButton m_nui;
-	CButton m_nuo;
-	CButton m_ns;
-	CButton m_ndf;
-	afx_msg void OnBnClickedSave();
-	afx_msg void OnBnClickedStop();
-	afx_msg void OnBnClickedLoadConfig();
+public:
+	afx_msg void OnBnClickedChangeFloder();
+	afx_msg void OnTcnSelchangeNotifyTab(NMHDR* pNMHDR, LRESULT* pResult);
+	afx_msg void OnBnClickedRun();
+	CButton m_br;
 	afx_msg void OnBnClickedRestart();
-	afx_msg void OnBnClickedStart();
-	afx_msg void OnBnClickedChangePath();
-	virtual BOOL PreTranslateMessage(MSG* pMsg);
+	CButton m_restart;
+	afx_msg void OnBnClickedReload();
+	CButton m_reload;
+	afx_msg void OnBnClickedStop();
+	CButton m_stop;
+	afx_msg void OnBnClickedStatus();
+	afx_msg void OnBnClickedProgf();
+	CEdit m_alive;
+	CEdit m_mem;
+	CButton m_nStatus;
+	CButton m_nClose;
+	CButton m_nUsbin;
+	CButton m_nUsbout;
+	CButton m_nDownload;
+	CButton m_pDesktop;
+	CButton m_pDownload;
+	CButton m_noAdmin;
+	CEdit m_aDelay;
+	afx_msg void OnBnClickedSelectAll();
+	afx_msg void OnBnClickedNotSelectAll();
+	afx_msg void OnBnClickedSaveProf();
+//	afx_msg void OnEnChangeNl1();
+	virtual BOOL OnInitDialog();
 };

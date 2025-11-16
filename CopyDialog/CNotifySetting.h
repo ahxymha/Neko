@@ -25,4 +25,7 @@ protected:
 public:
 	afx_msg void OnBnClickedSave();
 	int selector = 0;
+	CEdit m_nl1;
+	CEdit m_nl2;
+	CEdit m_nl3;
 };

@@ -3,12 +3,8 @@
 
 #include "pch.h"
 #include "CopyDialog.h"
-#include "CNotifySetting.h"
 #include "afxdialogex.h"
 #include "CConfigDlg.h"
-#include <algorithm>
-#include <vector>
-#include <string>
 
 
 // CConfigDlg 对话框
@@ -29,77 +25,54 @@ void CConfigDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_NOTIFY_TAB, m_tab);
-	DDX_Control(pDX, IDC_FLOSERPATH, m_fpath);
-	DDX_Control(pDX, IDC_CHANGEPATH, m_changef);
-	DDX_Control(pDX, IDC_MOVE_FILE, m_mdf);
-	DDX_Control(pDX, IDC_NOTIFY_WINDOW_CLOSE, m_nwc);
-	DDX_Control(pDX, IDC_NOTIFY_USB_IN, m_nui);
-	DDX_Control(pDX, IDC_NOTIFY_USB_OUT, m_nuo);
-	DDX_Control(pDX, IDC_NOTIFY_START, m_ns);
-	DDX_Control(pDX, IDC_NOTIFY_DOWNLOAD, m_ndf);
+	DDX_Control(pDX, IDC_FPATH, m_fpath);
+	DDX_Control(pDX, IDC_RUN, m_br);
+	DDX_Control(pDX, IDC_RESTART, m_restart);
+	DDX_Control(pDX, IDC_RELOAD, m_reload);
+	DDX_Control(pDX, IDC_STOP, m_stop);
+	DDX_Control(pDX, IDC_ALIVE, m_alive);
+	DDX_Control(pDX, IDC_MEM, m_mem);
+	DDX_Control(pDX, IDC_NSTATUS, m_nStatus);
+	DDX_Control(pDX, IDC_NCLOSEWINDOW, m_nClose);
+	DDX_Control(pDX, IDC_NUSBIN, m_nUsbin);
+	DDX_Control(pDX, IDC_NUSBOUT, m_nUsbout);
+	DDX_Control(pDX, IDC_NDOWNLOAD, m_nDownload);
+	DDX_Control(pDX, IDC_PDESKTOP, m_pDesktop);
+	DDX_Control(pDX, IDC_PDOWNLOAD, m_pDownload);
+	DDX_Control(pDX, IDC_NOADMIN, m_noAdmin);
+	DDX_Control(pDX, IDC_ADMINWAIT, m_aDelay);
 }
 
-BOOL CConfigDlg::OnInitDialog() {
-	CDialog::OnInitDialog();
-
-	std::vector<std::wstring> notifies = { L"Neko启动",L"窗口关闭",L"USB插入",L"USB拔出",L"下载新增" };
-	std::reverse(notifies.begin(), notifies.end());
-	int i = 0;
-	for (auto &notify : notifies) {
-		m_tab.InsertItem(i, notify.c_str());
-		i++;
-	}
-	this->m_dt = new CNotifySetting;
-	this->m_dt->Create(IDD_NoticeSettings, &this->m_tab);
-	CRect winRect;
-	this->m_tab.AdjustRect(FALSE, winRect);
-	this->m_dt->MoveWindow(winRect);
-	this->m_dt->ShowWindow(SW_SHOW);
-	this->m_tab.SetCurSel(0);
-	if (m_tab.GetSafeHwnd()) {
-		m_tab.BringWindowToTop();
-		this->m_dt->BringWindowToTop();
-	}
-	return TRUE;
-}
-
-
-BOOL CConfigDlg::PreTranslateMessage(MSG* pMsg)
-{
-    // 在消息处理前强制刷新显示
-    if (pMsg->message == WM_PAINT) {
-        if (m_tab.GetSafeHwnd() && !m_tab.IsWindowVisible()) {
-            TRACE0("强制显示选项卡控件\n");
-            m_tab.ShowWindow(SW_SHOW);
-            m_tab.Invalidate(TRUE);
-        }
-    }
-    return CDialog::PreTranslateMessage(pMsg);
-}
 
 BEGIN_MESSAGE_MAP(CConfigDlg, CDialog)
-	ON_BN_CLICKED(IDC_SAVE_SETTING, &CConfigDlg::OnBnClickedSave)
-	ON_BN_CLICKED(IDC_STOP, &CConfigDlg::OnBnClickedStop)
-	ON_BN_CLICKED(IDC_LOADCONFIG, &CConfigDlg::OnBnClickedLoadConfig)
+	ON_BN_CLICKED(IDC_CHF, &CConfigDlg::OnBnClickedChangeFloder)
+	ON_NOTIFY(TCN_SELCHANGE, IDC_NOTIFY_TAB, &CConfigDlg::OnTcnSelchangeNotifyTab)
+	ON_BN_CLICKED(IDC_RUN, &CConfigDlg::OnBnClickedRun)
 	ON_BN_CLICKED(IDC_RESTART, &CConfigDlg::OnBnClickedRestart)
-	ON_BN_CLICKED(IDC_START, &CConfigDlg::OnBnClickedStart)
-	ON_BN_CLICKED(IDC_CHANGEPATH, &CConfigDlg::OnBnClickedChangePath)
+	ON_BN_CLICKED(IDC_RELOAD, &CConfigDlg::OnBnClickedReload)
+	ON_BN_CLICKED(IDC_STOP, &CConfigDlg::OnBnClickedStop)
+	ON_BN_CLICKED(IDC_STATUS, &CConfigDlg::OnBnClickedStatus)
+	ON_BN_CLICKED(IDC_PROGF, &CConfigDlg::OnBnClickedProgf)
+	ON_BN_CLICKED(IDC_SA, &CConfigDlg::OnBnClickedSelectAll)
+	ON_BN_CLICKED(IDC_NSA, &CConfigDlg::OnBnClickedNotSelectAll)
+	ON_BN_CLICKED(IDC_SAVEME, &CConfigDlg::OnBnClickedSaveProf)
 END_MESSAGE_MAP()
 
 
 // CConfigDlg 消息处理程序
 
-void CConfigDlg::OnBnClickedSave()
+void CConfigDlg::OnBnClickedChangeFloder()
 {
 	// TODO: 在此添加控件通知处理程序代码
 }
 
-void CConfigDlg::OnBnClickedStop()
+void CConfigDlg::OnTcnSelchangeNotifyTab(NMHDR* pNMHDR, LRESULT* pResult)
 {
 	// TODO: 在此添加控件通知处理程序代码
+	*pResult = 0;
 }
 
-void CConfigDlg::OnBnClickedLoadConfig()
+void CConfigDlg::OnBnClickedRun()
 {
 	// TODO: 在此添加控件通知处理程序代码
 }
@@ -109,12 +82,47 @@ void CConfigDlg::OnBnClickedRestart()
 	// TODO: 在此添加控件通知处理程序代码
 }
 
-void CConfigDlg::OnBnClickedStart()
+void CConfigDlg::OnBnClickedReload()
 {
 	// TODO: 在此添加控件通知处理程序代码
 }
 
-void CConfigDlg::OnBnClickedChangePath()
+void CConfigDlg::OnBnClickedStop()
 {
 	// TODO: 在此添加控件通知处理程序代码
+}
+
+void CConfigDlg::OnBnClickedStatus()
+{
+	// TODO: 在此添加控件通知处理程序代码
+}
+
+void CConfigDlg::OnBnClickedProgf()
+{
+	// TODO: 在此添加控件通知处理程序代码
+}
+
+void CConfigDlg::OnBnClickedSelectAll()
+{
+	// TODO: 在此添加控件通知处理程序代码
+}
+
+void CConfigDlg::OnBnClickedNotSelectAll()
+{
+	// TODO: 在此添加控件通知处理程序代码
+}
+
+void CConfigDlg::OnBnClickedSaveProf()
+{
+	// TODO: 在此添加控件通知处理程序代码
+}
+
+BOOL CConfigDlg::OnInitDialog()
+{
+	CDialog::OnInitDialog();
+
+	// TODO:  在此添加额外的初始化
+
+	return TRUE;  // return TRUE unless you set the focus to a control
+	// 异常: OCX 属性页应返回 FALSE
 }

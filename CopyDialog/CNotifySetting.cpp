@@ -24,6 +24,9 @@ CNotifySetting::~CNotifySetting()
 void CNotifySetting::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
+	DDX_Control(pDX, IDC_NL1, m_nl1);
+	DDX_Control(pDX, IDC_NL2, m_nl2);
+	DDX_Control(pDX, IDC_NL3, m_nl3);
 }
 
 
