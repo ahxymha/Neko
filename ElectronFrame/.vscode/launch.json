@@ -6,7 +6,11 @@
       "request": "launch",
       "name": "Launch Program",
       "skipFiles": [ "<node_internals>/**" ],
-      "program": "npm run",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd",
+      "args": [ "./dist/main/main.js" ],
+      "env": {
+        "NODE_ENV": "development"
+      },
       "cwd": "${workspaceFolder}",
       "console": "externalTerminal"
     }
