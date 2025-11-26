@@ -1,4 +1,4 @@
-﻿
+
 // CopyDialog.cpp: 定义应用程序的类行为。
 //
 
@@ -14,6 +14,7 @@
 #endif
 #include <functional>
 
+//迫使同一个文件更改触发多次通知
 std::mutex dsMutex;
 // CCopyDialogApp
 
