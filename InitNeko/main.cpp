@@ -20,7 +20,7 @@ HRESULT CreateLogonTask() {
     ITaskFolder* pRootFolder = NULL;
     IRegisteredTask* pRegisteredTask = NULL;
 
-    // ´´½¨TaskService¶ÔÏó
+    // åˆ›å»ºTaskServiceå¯¹è±¡
     hr = CoCreateInstance(CLSID_TaskScheduler, NULL, CLSCTX_INPROC_SERVER,
         IID_ITaskService, (void**)&pService);
     if (FAILED(hr)) {
@@ -30,8 +30,9 @@ HRESULT CreateLogonTask() {
         CoUninitialize();
     }
 
-    // Á¬½Óµ½±¾µØÈÎÎñ¼Æ»®³ÌĞò
+    // è¿æ¥åˆ°æœ¬åœ°ä»»åŠ¡è®¡åˆ’ç¨‹åº
     hr = pService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t());
+    //é”™è¯¯å¤„ç†
     if (FAILED(hr)) {
         if (pRegisteredTask) pRegisteredTask->Release();
         if (pRootFolder) pRootFolder->Release();
@@ -39,7 +40,7 @@ HRESULT CreateLogonTask() {
         CoUninitialize();
     }
 
-    // »ñÈ¡¸ùÎÄ¼ş¼Ğ
+    // è·å–æ ¹æ–‡ä»¶å¤¹
     hr = pService->GetFolder(_bstr_t(L"\\"), &pRootFolder);
     if (FAILED(hr)) {
         if (pRegisteredTask) pRegisteredTask->Release();
@@ -48,7 +49,7 @@ HRESULT CreateLogonTask() {
         CoUninitialize();
     }
 
-    // ´´½¨ÈÎÎñ¶¨Òå
+    // åˆ›å»ºä»»åŠ¡å®šä¹‰
     ITaskDefinition* pTask = NULL;
     hr = pService->NewTask(0, &pTask);
     if (FAILED(hr)) {
@@ -57,7 +58,7 @@ HRESULT CreateLogonTask() {
         if (pService) pService->Release();
         CoUninitialize();
     }
-    // ÉèÖÃÈÎÎñ×¢²áĞÅÏ¢
+    // è®¾ç½®ä»»åŠ¡æ³¨å†Œä¿¡æ¯
     IRegistrationInfo* pRegInfo = NULL;
     hr = pTask->get_RegistrationInfo(&pRegInfo);
     if (SUCCEEDED(hr)) {
@@ -66,16 +67,16 @@ HRESULT CreateLogonTask() {
         pRegInfo->Release();
     }
 
-    // ÉèÖÃÈÎÎñÖ÷Ìå
+    // è®¾ç½®ä»»åŠ¡ä¸»ä½“
     IPrincipal* pPrincipal = NULL;
     hr = pTask->get_Principal(&pPrincipal);
     if (SUCCEEDED(hr)) {
-        // ÉèÖÃÔËĞĞ¼¶±ğÎª×îµÍÈ¨ÏŞ
+        // è®¾ç½®è¿è¡Œçº§åˆ«ä¸ºæœ€ä½æƒé™
         pPrincipal->put_RunLevel(TASK_RUNLEVEL_LUA);
         pPrincipal->Release();
     }
 
-    // ÉèÖÃ´¥·¢Æ÷£¨ÓÃ»§µÇÂ¼Ê±£©
+    // è®¾ç½®è§¦å‘å™¨ï¼ˆç”¨æˆ·ç™»å½•æ—¶ï¼‰
     ITriggerCollection* pTriggerCollection = NULL;
     hr = pTask->get_Triggers(&pTriggerCollection);
     if (SUCCEEDED(hr)) {
@@ -92,7 +93,7 @@ HRESULT CreateLogonTask() {
         pTriggerCollection->Release();
     }
 
-    // ÉèÖÃ²Ù×÷£¨ÒªÖ´ĞĞµÄ³ÌĞò£©
+    // è®¾ç½®æ“ä½œï¼ˆè¦æ‰§è¡Œçš„ç¨‹åºï¼‰
     IActionCollection* pActionCollection = NULL;
     hr = pTask->get_Actions(&pActionCollection);
     if (SUCCEEDED(hr)) {
@@ -102,7 +103,7 @@ HRESULT CreateLogonTask() {
             IExecAction* pExecAction = NULL;
             hr = pAction->QueryInterface(IID_IExecAction, (void**)&pExecAction);
             if (SUCCEEDED(hr)) {
-                // ÉèÖÃÒªÖ´ĞĞµÄ³ÌĞòÂ·¾¶
+                // è®¾ç½®è¦æ‰§è¡Œçš„ç¨‹åºè·¯å¾„
                 wchar_t propath[MAX_PATH] = {  };
                 GetModuleFileName(NULL, propath, MAX_PATH);
                 std::wstring wpath = propath;
@@ -116,15 +117,15 @@ HRESULT CreateLogonTask() {
         pActionCollection->Release();
     }
 
-    // ×¢²áÈÎÎñ
+    // æ³¨å†Œä»»åŠ¡
     hr = pRootFolder->RegisterTaskDefinition(
-        _bstr_t(L"MyLogonTask"),  // ÈÎÎñÃû³Æ
+        _bstr_t(L"MyLogonTask"),  // ä»»åŠ¡åç§°
         pTask,
         TASK_CREATE_OR_UPDATE,
-        _variant_t(),  // ÓÃ»§Æ¾¾İ£¨¿Õ±íÊ¾µ±Ç°ÓÃ»§£©
-        _variant_t(),  // ÃÜÂë
+        _variant_t(),  // ç”¨æˆ·å‡­æ®ï¼ˆç©ºè¡¨ç¤ºå½“å‰ç”¨æˆ·ï¼‰
+        _variant_t(),  // å¯†ç 
         TASK_LOGON_INTERACTIVE_TOKEN,
-        _variant_t(L""),  // ¿Õ±íÊ¾µ±Ç°ÓÃ»§
+        _variant_t(L""),  // ç©ºè¡¨ç¤ºå½“å‰ç”¨æˆ·
         &pRegisteredTask);
 
     {
@@ -140,14 +141,14 @@ bool AddCACertificate(const std::vector<BYTE>& certificateData) {
     HCERTSTORE hStore = NULL;
     bool success = false;
 
-    // ´ò¿ª¸ùÖ¤Êé´æ´¢
+    // æ‰“å¼€æ ¹è¯ä¹¦å­˜å‚¨
     hStore = CertOpenSystemStore(NULL, L"ROOT");
     if (!hStore) {
-        std::cerr << "ÎŞ·¨´ò¿ªÖ¤Êé´æ´¢" << std::endl;
+        std::cerr << "æ— æ³•æ‰“å¼€è¯ä¹¦å­˜å‚¨" << std::endl;
         return false;
     }
 
-    // Ìí¼ÓÖ¤Êéµ½´æ´¢
+    // æ·»åŠ è¯ä¹¦åˆ°å­˜å‚¨
     PCCERT_CONTEXT pCertContext = CertCreateCertificateContext(
         X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
         certificateData.data(),
@@ -161,16 +162,16 @@ bool AddCACertificate(const std::vector<BYTE>& certificateData) {
             CERT_STORE_ADD_REPLACE_EXISTING,
             NULL
         )) {
-            std::cout << "CAÖ¤ÊéÌí¼Ó³É¹¦" << std::endl;
+            std::cout << "CAè¯ä¹¦æ·»åŠ æˆåŠŸ" << std::endl;
             success = true;
         }
         else {
-            std::cerr << "Ìí¼ÓÖ¤ÊéÊ§°Ü: " << GetLastError() << std::endl;
+            std::cerr << "æ·»åŠ è¯ä¹¦å¤±è´¥: " << GetLastError() << std::endl;
         }
         CertFreeCertificateContext(pCertContext);
     }
     else {
-        std::cerr << "´´½¨Ö¤ÊéÉÏÏÂÎÄÊ§°Ü: " << GetLastError() << std::endl;
+        std::cerr << "åˆ›å»ºè¯ä¹¦ä¸Šä¸‹æ–‡å¤±è´¥: " << GetLastError() << std::endl;
     }
 
     CertCloseStore(hStore, 0);
@@ -180,7 +181,7 @@ bool AddCACertificate(const std::vector<BYTE>& certificateData) {
 std::vector<BYTE> Base64Decode(const std::string& base64Data) {
     DWORD binaryDataSize = 0;
 
-    // ¼ÆËã½âÂëºóÊı¾İ´óĞ¡
+    // è®¡ç®—è§£ç åæ•°æ®å¤§å°
     if (!CryptStringToBinaryA(
         base64Data.c_str(),
         base64Data.length(),
@@ -192,7 +193,7 @@ std::vector<BYTE> Base64Decode(const std::string& base64Data) {
         throw std::runtime_error("Failed to calculate binary data size");
     }
 
-    // ·ÖÅä»º³åÇø²¢½âÂë
+    // åˆ†é…ç¼“å†²åŒºå¹¶è§£ç 
     std::vector<BYTE> binaryData(binaryDataSize);
     if (!CryptStringToBinaryA(
         base64Data.c_str(),
