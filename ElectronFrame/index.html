@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electron Pipe App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .waiting {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h1>Electron Pipe Application</h1>
+        <div class="status waiting">
+            Waiting for HTML content from pipe...
+        </div>
+    </div>
+
+    <!-- 注意：这里引用的是编译后的 ES 模块文件 -->
+    <script type="module" src="dist/renderer.js"></script>
+</body>
+</html>
