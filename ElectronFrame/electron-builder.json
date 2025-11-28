@@ -1,21 +1,26 @@
 {
   "appId": "com.xymh.neko.electron",
   "productName": "Electron Frame For Neko",
-  "directories": {
-    "output": "dist-electron"
-  },
   "files": [
     "dist/**/*",
     "node_modules/**/*",
     "package.json"
   ],
+  "directories": {
+    "output": "dist-electron"
+  },
+  "extraResources": [
+    {
+      "from": "dist",
+      "to": "app",
+      "filter": ["**/*", "!main.js"]
+    }
+  ],
   "win": {
     "target": "nsis"
   },
-  "mac": {
-    "target": "dmg"
-  },
-  "linux": {
-    "target": "AppImage"
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
   }
 }

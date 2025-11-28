@@ -50,7 +50,7 @@ class PipeElectronApp {
             }
         });
 
-        this.mainWindow.loadFile(path.join(__dirname, '../index.html'));
+        this.mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
         // 开发时打开调试工具
         if (process.env.NODE_ENV === 'development') {
@@ -59,22 +59,34 @@ class PipeElectronApp {
     }
 
     private parseCommandLineArgs(): void {
-        const args = process.argv.slice(2);
-        console.log('Command line arguments:', args);
+  // 从环境变量读取管道句柄
+  const htmlPipeEnv = process.env.ELECTRON_HTML_PIPE;
+  const inputPipeEnv = process.env.ELECTRON_INPUT_PIPE;
+  const outputPipeEnv = process.env.ELECTRON_OUTPUT_PIPE;
 
-        if (args.length < 3) {
-            console.warn('Expected 3 pipe handles as command line arguments');
-            return;
-        }
+  console.log('Environment variables:', {
+    ELECTRON_HTML_PIPE: htmlPipeEnv,
+    ELECTRON_INPUT_PIPE: inputPipeEnv,
+    ELECTRON_OUTPUT_PIPE: outputPipeEnv
+  });
 
-        this.pipeHandles = {
-            htmlPipe: parseInt(args[0], 10),
-            inputPipe: parseInt(args[1], 10),
-            outputPipe: parseInt(args[2], 10)
-        };
-
-        console.log('Parsed pipe handles:', this.pipeHandles);
-    }
+  if (htmlPipeEnv && inputPipeEnv && outputPipeEnv) {
+    this.pipeHandles = {
+      htmlPipe: parseInt(htmlPipeEnv, 10),
+      inputPipe: parseInt(inputPipeEnv, 10),
+      outputPipe: parseInt(outputPipeEnv, 10)
+    };
+    console.log('Parsed pipe handles from environment:', this.pipeHandles);
+  } else {
+    console.warn('Not all pipe handles available in environment variables');
+    console.warn('Available:', { htmlPipeEnv, inputPipeEnv, outputPipeEnv });
+    this.pipeHandles = {
+      htmlPipe: 0,
+      inputPipe: 0,
+      outputPipe: 0
+    };
+  }
+}
 
     private setupPipes(): void {
         if (!this.pipeHandles) {
