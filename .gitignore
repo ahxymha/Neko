@@ -366,3 +366,4 @@ MigrationBackup/
 FodyWeavers.xsd
 /ElectronFrame/dist-electron
 /ElectronFrame/dist
+*.dll
