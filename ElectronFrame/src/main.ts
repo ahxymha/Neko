@@ -1,17 +1,12 @@
+// file: main_modified.ts
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
-import * as fs from 'fs';
-
-interface PipeHandles {
-    htmlPipe: number;
-    inputPipe: number;
-    outputPipe: number;
-}
+import PipeManager from './pipe';
 
 class PipeElectronApp {
     private mainWindow: BrowserWindow | null = null;
-    private pipeHandles: PipeHandles | null = null;
-    private outputPipeHandle: number | null = null;
+    private pipeManager: PipeManager | null = null;
+    private stopInputListener: (() => void) | null = null;
 
     constructor() {
         this.initializeApp();
@@ -20,9 +15,10 @@ class PipeElectronApp {
     private initializeApp(): void {
         app.whenReady().then(() => {
             this.createWindow();
-            this.parseCommandLineArgs();
-            this.setupPipes();
+            this.setupPipeManager();
             this.setupIpcHandlers();
+            this.loadHtmlContent();
+            //this.startInputListening();
         });
 
         app.on('window-all-closed', () => {
@@ -35,6 +31,11 @@ class PipeElectronApp {
             if (BrowserWindow.getAllWindows().length === 0) {
                 this.createWindow();
             }
+        });
+
+        // 清理资源
+        app.on('before-quit', () => {
+            this.cleanup();
         });
     }
 
@@ -50,7 +51,8 @@ class PipeElectronApp {
             }
         });
 
-        this.mainWindow.loadFile(path.join(__dirname, 'index.html'));
+        // 先加载一个占位页面
+        this.mainWindow.loadFile(path.join(__dirname, 'loading.html'));
 
         // 开发时打开调试工具
         if (process.env.NODE_ENV === 'development') {
@@ -58,110 +60,105 @@ class PipeElectronApp {
         }
     }
 
-    private parseCommandLineArgs(): void {
-  // 从环境变量读取管道句柄
-  const htmlPipeEnv = process.env.ELECTRON_HTML_PIPE;
-  const inputPipeEnv = process.env.ELECTRON_INPUT_PIPE;
-  const outputPipeEnv = process.env.ELECTRON_OUTPUT_PIPE;
+    private setupPipeManager(): void {
+        try {
+            // 创建PipeManager实例
+            // 你可以根据需要调整DLL路径和缓冲区大小
+            const dllPath = process.env.WEBHELPER_DLL_PATH || 'webhelper.dll';
+            console.log(`Initializing PipeManager with DLL: ${dllPath}`);
+            
+            this.pipeManager = new PipeManager(dllPath, 15728640);
+            
+            
+        } catch (error) {
+            console.error(`Failed to setup PipeManager: ${error}`);
+            this.showErrorPage('Failed to load communication library');
+        }
+    }
 
-  console.log('Environment variables:', {
-    ELECTRON_HTML_PIPE: htmlPipeEnv,
-    ELECTRON_INPUT_PIPE: inputPipeEnv,
-    ELECTRON_OUTPUT_PIPE: outputPipeEnv
-  });
-
-  if (htmlPipeEnv && inputPipeEnv && outputPipeEnv) {
-    this.pipeHandles = {
-      htmlPipe: parseInt(htmlPipeEnv, 10),
-      inputPipe: parseInt(inputPipeEnv, 10),
-      outputPipe: parseInt(outputPipeEnv, 10)
-    };
-    console.log('Parsed pipe handles from environment:', this.pipeHandles);
-  } else {
-    console.warn('Not all pipe handles available in environment variables');
-    console.warn('Available:', { htmlPipeEnv, inputPipeEnv, outputPipeEnv });
-    this.pipeHandles = {
-      htmlPipe: 0,
-      inputPipe: 0,
-      outputPipe: 0
-    };
-  }
-}
-
-    private setupPipes(): void {
-        if (!this.pipeHandles) {
-            console.warn('No pipe handles available');
+    private loadHtmlContent(): void {
+        if (!this.pipeManager || !this.mainWindow) {
+            console.error('PipeManager or mainWindow not available');
             return;
         }
 
-        this.setupHtmlPipe();
-        this.setupInputPipe();
-        this.outputPipeHandle = this.pipeHandles.outputPipe;
-    }
-
-    private setupHtmlPipe(): void {
-        if (!this.pipeHandles) return;
-
         try {
-            const htmlPipe = fs.createReadStream('', {
-                fd: this.pipeHandles.htmlPipe
-            });
-
-            let htmlContent = '';
-
-            // 修复：使用 any 类型来避免类型检查问题
-            htmlPipe.on('data', (chunk: any) => {
-                if (chunk instanceof Buffer) {
-                    htmlContent += chunk.toString('utf8');
-                } else if (typeof chunk === 'string') {
-                    htmlContent += chunk;
-                } else {
-                    htmlContent += Buffer.from(chunk).toString('utf8');
-                }
-            });
-
-            htmlPipe.on('end', () => {
-                console.log('Received HTML content, length:', htmlContent.length);
+            console.log('Loading HTML content from DLL...');
+            const htmlContent = this.pipeManager.getHtmlContent();
+            
+            if (htmlContent) {
+                console.log(`Successfully got HTML content, length: ${htmlContent.length}`);
                 this.replaceWindowContent(htmlContent);
-            });
-
-            htmlPipe.on('error', (error: Error) => {
-                console.error('Error reading HTML pipe:', error);
-            });
+            } else {
+                console.error('Failed to get HTML content from DLL');
+                this.showErrorPage('Failed to load HTML content');
+            }
         } catch (error) {
-            console.error('Failed to setup HTML pipe:', error);
+            console.error(`Error loading HTML content: ${error}`);
+            this.showErrorPage('Error loading page content');
         }
     }
 
-    private setupInputPipe(): void {
-        if (!this.pipeHandles) return;
-
-        try {
-            const inputPipe = fs.createReadStream('', {
-                fd: this.pipeHandles.inputPipe
-            });
-
-            // 修复：使用 any 类型来避免类型检查问题
-            inputPipe.on('data', (chunk: any) => {
-                let message: string;
-                if (chunk instanceof Buffer) {
-                    message = chunk.toString('utf8');
-                } else if (typeof chunk === 'string') {
-                    message = chunk;
-                } else {
-                    message = Buffer.from(chunk).toString('utf8');
-                }
-
-                console.log('Received message from input pipe:', message);
-                this.sendMessageToRenderer(message);
-            });
-
-            inputPipe.on('error', (error: Error) => {
-                console.error('Error reading input pipe:', error);
-            });
-        } catch (error) {
-            console.error('Failed to setup input pipe:', error);
+    private startInputListening(): void {
+        if (!this.pipeManager) {
+            console.warn('PipeManager not available for input listening');
+            return;
         }
+
+        console.log('Starting async input listening...');
+        
+        // 开始异步监听输入
+        this.stopInputListener = this.pipeManager.waitForInputAsync(
+            (message) => {
+                if (message !== null) {
+                    console.log(`Received message via async listener: ${message.length} chars`);
+                    this.sendMessageToRenderer(message);
+                }
+            },
+            100 // 轮询间隔
+        );
+    }
+
+    private showErrorPage(errorMessage: string): void {
+        if (!this.mainWindow) return;
+        
+        const errorHtml = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Error</title>
+                <style>
+                    body { 
+                        font-family: Arial, sans-serif; 
+                        display: flex; 
+                        justify-content: center; 
+                        align-items: center; 
+                        height: 100vh; 
+                        margin: 0; 
+                        background-color: #f5f5f5;
+                    }
+                    .error-container { 
+                        background: white; 
+                        padding: 2rem; 
+                        border-radius: 8px; 
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                        max-width: 500px;
+                        text-align: center;
+                    }
+                    h1 { color: #d32f2f; }
+                </style>
+            </head>
+            <body>
+                <div class="error-container">
+                    <h1>Error</h1>
+                    <p>${errorMessage}</p>
+                    <p>Please check the console for more details.</p>
+                </div>
+            </body>
+            </html>
+        `;
+        
+        this.replaceWindowContent(errorHtml);
     }
 
     private replaceWindowContent(htmlContent: string): void {
@@ -181,7 +178,7 @@ class PipeElectronApp {
     private setupIpcHandlers(): void {
         // 处理来自渲染进程的消息
         ipcMain.handle('send-to-pipe', async (event, message: string) => {
-            return this.sendToOutputPipe(message);
+            return this.sendToOutput(message);
         });
 
         // 处理渲染进程就绪事件
@@ -189,22 +186,42 @@ class PipeElectronApp {
             console.log('Renderer process is ready');
             return true;
         });
+
+        // 添加调试接口
+        ipcMain.handle('debug-get-html', async () => {
+            if (!this.pipeManager) return null;
+            return this.pipeManager.getHtmlContent();
+        });
+
     }
 
-    private sendToOutputPipe(message: string): boolean {
-        if (!this.outputPipeHandle) {
-            console.error('Output pipe not available');
+    private sendToOutput(message: string): boolean {
+        if (!this.pipeManager) {
+            console.error('PipeManager not available');
             return false;
         }
 
         try {
-            const buffer = Buffer.from(message, 'utf8');
-            const bytesWritten = fs.writeSync(this.outputPipeHandle, buffer);
-            console.log(`Sent ${bytesWritten} bytes to output pipe`);
-            return bytesWritten > 0;
+            return this.pipeManager.setOutputContent(message);
         } catch (error) {
-            console.error('Error writing to output pipe:', error);
+            console.error(`Error sending to output: ${error}`);
             return false;
+        }
+    }
+
+    private cleanup(): void {
+        console.log('Cleaning up PipeElectronApp...');
+        
+        // 停止输入监听
+        if (this.stopInputListener) {
+            this.stopInputListener();
+            this.stopInputListener = null;
+        }
+        
+        // 释放PipeManager资源
+        if (this.pipeManager) {
+            this.pipeManager.dispose();
+            this.pipeManager = null;
         }
     }
 }

@@ -1,19 +1,58 @@
 {
   "name": "com.xymh.neko.electron",
   "version": "1.0.0",
-  "description": "Electron Frame For Neko",
   "main": "dist/main.js",
   "scripts": {
+    "build": "npm run build-main && npm run build-renderer",
     "build-main": "tsc -p tsconfig.main.json",
     "build-renderer": "tsc -p tsconfig.renderer.json",
-    "build": "npm run build-main && npm run build-renderer",
-    "pack": "npm run build && electron-builder --dir",
-    "start": "npm run build && electron dist/main.js",
-    "dev": "npm run build && electron dist/main.js"
+    "start": "electron .",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild": "electron-rebuild -f -w koffi",
+    "package": "electron-builder --win",
+    "dist": "npm run rebuild && npm run build && npm run package"
+  },
+  "dependencies": {
+    "koffi": "^2.8.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "electron": "^25.0.0",
-    "typescript": "^5.0.0"
+    "@electron/rebuild": "^3.7.1",
+    "@types/node": "^20.14.9",
+    "electron": "^29.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.5.4"
+  },
+  "build": {
+    "appId": "com.xymh.neko.electron",
+    "productName": "electron",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "!node_modules/koffi/{src,docs,test}",
+      "node_modules/koffi/**/*",
+      "../x64/Debug/webhelper.dll"
+    ],
+    "extraResources": [
+      {
+        "from": "../x64/Debug/webhelper.dll",
+        "to": "."
+      },
+      {
+        "from": "node_modules/koffi/bin/${platform}/${arch}",
+        "to": "koffi-bin"
+      }
+    ],
+    "npmRebuild": false,
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [ "x64" ]
+        }
+      ]
+    }
   }
 }
