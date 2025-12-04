@@ -69,7 +69,6 @@ class PipeElectronApp {
                 contextIsolation: true,
                 preload: path.join(__dirname, 'preload.js'),
                 webSecurity: false,
-                enableRemoteModule: false,
                 spellcheck: false
             },
             icon: path.join(__dirname, 'icon.ico'),
