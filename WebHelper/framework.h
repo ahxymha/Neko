@@ -10,5 +10,6 @@
 #endif
 
 extern"C" WEBHELPER_API bool __stdcall GetHtmlContent(char* res, const unsigned int len);
-extern"C" WEBHELPER_API bool __stdcall WaitInputContent(char* res, const unsigned int len);
+extern "C" WEBHELPER_API int __stdcall SetInputContentCallback(bool (*callback)(char*, int));
+extern "C" WEBHELPER_API bool __stdcall StopInputListener(uintptr_t hl);
 extern"C" WEBHELPER_API bool __stdcall SetOutputContent(char* str, const unsigned int len);

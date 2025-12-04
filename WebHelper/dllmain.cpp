@@ -186,90 +186,103 @@ extern"C" WEBHELPER_API bool __stdcall GetHtmlContent(char* res, const unsigned 
         return false;
     }
 }
-extern "C" WEBHELPER_API bool __stdcall WaitInputContent(char* res, const unsigned int len) {
+
+bool InputContentCallbackd(bool (*callback)(char*, int)) {
     HANDLE inputPipe = GetHandleFromEnvironment("ELECTRON_INPUT_PIPE");
-    if (!CheckHandleValidity(inputPipe, "Input pipe")) {
-        return false;
-    }
-
-    std::cout << "Waiting for input content from pipe..." << std::endl;
-
-    // 读取输入内容
-    std::string inputContent;
-    char buffer[4096]{};  // 固定大小的缓冲区
-    DWORD bytesRead;
-    DWORD totalBytesRead = 0;
-
-    while (true) {
-        if (!ReadFile(inputPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
-            DWORD error = GetLastError();
-
-            if (error == ERROR_BROKEN_PIPE) {
-                std::cout << "Input pipe closed by parent (normal)" << std::endl;
-                break;
-            }
-            else if (error == ERROR_NO_DATA) {
-                std::cout << "No more data in input pipe" << std::endl;
-                break;
-            }
-            else {
-                std::cerr << "ReadFile from input pipe failed. Error: " << error << std::endl;
-                break;
-            }
-        }
-
-        if (bytesRead == 0) {
-            std::cout << "End of input content (0 bytes read)" << std::endl;
-            break;
-        }
-
-        totalBytesRead += bytesRead;
-        buffer[bytesRead] = '\0';
-
-        // 检查是否会超出总内容大小限制（可选）
-        if (inputContent.size() + bytesRead > 10 * 1024 * 1024) { // 限制为10MB
-            std::cerr << "Input content too large, exceeding 10MB limit" << std::endl;
+    while(true){
+        if (!CheckHandleValidity(inputPipe, "Input pipe")) {
             return false;
         }
 
-        inputContent.append(buffer, bytesRead);
+        std::cout << "Waiting for input content from pipe..." << std::endl;
 
-        std::cout << "Read " << bytesRead << " bytes from input pipe. Total: " << totalBytesRead << std::endl;
-
-        // 如果读取的字节数少于缓冲区大小，可能已经读取完所有数据
-        if (bytesRead < sizeof(buffer) - 1) {
-            std::cout << "Read less than buffer size, assuming end of input data" << std::endl;
-            break;
+        while (true) {
+            DWORD bytesAvailable;
+            if (!PeekNamedPipe(inputPipe, NULL, 0, NULL, &bytesAvailable, NULL)) {
+                DWORD error = GetLastError();
+                std::cerr << "PeekNamedPipe failed. Error: " << error << std::endl;
+                return false;
+            }
+            if (bytesAvailable != 0)
+                break;
         }
-    }
 
-    if (!inputContent.empty()) {
-        std::cout << "\n=== Successfully Read Input Content ===" << std::endl;
-        std::cout << "Total size: " << inputContent.size() << " bytes" << std::endl;
+        // 读取输入内容
+        std::string inputContent;
+        char buffer[4096]{};  // 固定大小的缓冲区
+        DWORD bytesRead;
+        DWORD totalBytesRead = 0;
 
-        // 确保不会溢出调用者提供的缓冲区
-        if (inputContent.size() >= len) {
-            std::cerr << "Input content too large for buffer ("
-                << inputContent.size() << " >= " << len << ")" << std::endl;
-            // 只复制能安全容纳的部分
-            strncpy_s(res, len, inputContent.c_str(), len - 1);
-            res[len - 1] = '\0'; // 确保字符串终止
-            return true; // 返回true表示读取到了内容，即使被截断了
+        while (true) {
+            if (!ReadFile(inputPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
+                DWORD error = GetLastError();
+
+                if (error == ERROR_BROKEN_PIPE) {
+                    std::cout << "Input pipe closed by parent (normal)" << std::endl;
+                    break;
+                }
+                else if (error == ERROR_NO_DATA) {
+                    std::cout << "No more data in input pipe" << std::endl;
+                    break;
+                }
+                else {
+                    std::cerr << "ReadFile from input pipe failed. Error: " << error << std::endl;
+                    break;
+                }
+            }
+
+            if (bytesRead == 0) {
+                std::cout << "End of input content (0 bytes read)" << std::endl;
+                break;
+            }
+
+            totalBytesRead += bytesRead;
+            buffer[bytesRead] = '\0';
+
+            // 检查是否会超出总内容大小限制（可选）
+            if (inputContent.size() + bytesRead > 50 * 1024 * 1024) { // 限制为50MB
+                std::cerr << "Input content too large, exceeding 10MB limit" << std::endl;
+                return false;
+            }
+
+            inputContent.append(buffer, bytesRead);
+
+            std::cout << "Read " << bytesRead << " bytes from input pipe. Total: " << totalBytesRead << std::endl;
+
+            // 如果读取的字节数少于缓冲区大小，可能已经读取完所有数据
+            if (bytesRead < sizeof(buffer) - 1) {
+                std::cout << "Read less than buffer size, assuming end of input data" << std::endl;
+                break;
+            }
+        }
+
+        if (!inputContent.empty()) {
+            std::cout << "\n=== Successfully Read Input Content ===" << std::endl;
+            std::cout << "Total size: " << inputContent.size() << " bytes" << std::endl;
+
+            char* res = new char[inputContent.size() + 2];
+            strcpy_s(res, inputContent.size() + 2, inputContent.c_str());
+            if (!callback(res, inputContent.size() + 1)) {
+                std::cerr << "Callback fuction returned error\n";
+            }
+            delete[] res;
+            std::cout << "========================================\n" << std::endl;
         }
         else {
-            strcpy_s(res, len, inputContent.c_str());
+            std::cout << "No input content was read!" << std::endl;
         }
+    }
+}
 
-        std::cout << "========================================\n" << std::endl;
-        return true;
-    }
-    else {
-        std::cout << "No input content was read!" << std::endl;
-        if (len > 0) {
-            res[0] = '\0'; // 确保返回空字符串
-        }
-        return false;
-    }
+extern "C" WEBHELPER_API int __stdcall SetInputContentCallback(bool (*callback)(char*, int)) {
+    std::thread ic(InputContentCallbackd,callback);
+    ic.detach();
+    return (uintptr_t)ic.native_handle();
+}
+
+extern "C" WEBHELPER_API bool __stdcall StopInputListener(uintptr_t hl) {
+    HANDLE threadHl = reinterpret_cast<HANDLE>(hl);
+    return TerminateThread(threadHl, 0);
 }
 
 extern "C" WEBHELPER_API bool __stdcall SetOutputContent(char* str, const unsigned int len) {

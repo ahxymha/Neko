@@ -1,305 +1,348 @@
-// file: pipe.ts
+// file: pipe_callback.ts
 import koffi from 'koffi';
+import * as path from 'path';
 
-// 定义DLL中的函数签名
-interface PipeFunctions {
-    GetHtmlContent: (buffer: Buffer, length: number) => boolean;
-    WaitInputContent: (buffer: Buffer, length: number) => boolean;
-    SetOutputContent: (buffer: Buffer, length: number) => boolean;
-}
+// 回调函数类型定义
+type InputCallback = (data: Buffer, length: number) => boolean;
 
-class PipeManager {
+class CallbackPipeManager {
     private dllPath: string;
     private lib: any;
-    private pipeFunctions: PipeFunctions;
-    private inputBuffer: Buffer;
-    private outputBuffer: Buffer;
-    private htmlBuffer: Buffer;
     private bufferSize: number;
-    private stopInputListener: (() => void) | null = null;
+    private isDllLoaded: boolean = false;
+    private callbackHandle: number = 0;
+    private activeCallback: InputCallback | null = null;
+    private isListening: boolean = false;
 
-    constructor(dllPath: string = 'webhelper.dll', bufferSize: number = 65536) {
-        this.dllPath = dllPath;
-        this.bufferSize = bufferSize;
-
-        // 创建缓冲区
-        this.inputBuffer = Buffer.alloc(this.bufferSize);
-        this.outputBuffer = Buffer.alloc(this.bufferSize);
-        this.htmlBuffer = Buffer.alloc(this.bufferSize);
-
-        // 加载DLL和函数
-        this.lib = this.loadLibrary();
-        this.pipeFunctions = this.loadFunctions();
-    }
-
-    private loadLibrary(): any {
+    // 默认缓冲区大小为50MB
+    constructor(dllPath: string = 'webhelper.dll', bufferSize: number = 50 * 1024 * 1024) {
+        this.dllPath = this.resolveDllPath(dllPath);
+        this.bufferSize = bufferSize + 1; // 为null终止符额外分配1字节
+        
+        console.log(`CallbackPipeManager初始化，缓冲区大小: ${this.bufferSize / 1024 / 1024}MB`);
+        console.log(`DLL路径: ${this.dllPath}`);
+        
         try {
-            console.log(`Loading DLL from: ${this.dllPath}`);
-            const lib = koffi.load(this.dllPath);
-            console.log('DLL loaded successfully');
-            return lib;
+            this.lib = koffi.load(this.dllPath);
+            this.isDllLoaded = true;
+            console.log('✅ DLL加载成功');
         } catch (error) {
-            console.error(`Failed to load DLL: ${error}`);
-            throw new Error(`Unable to load DLL: ${this.dllPath}`);
+            console.error('❌ 加载DLL失败:', error);
+            this.lib = null;
+            this.isDllLoaded = false;
         }
     }
 
-    private loadFunctions(): PipeFunctions {
-        try {
-            console.log('Loading DLL functions...');
-
-            // 使用已弃用但可用的stdcall方法
-            const GetHtmlContent = this.lib.stdcall('GetHtmlContent', 'bool', ['char *', 'uint']);
-            const WaitInputContent = this.lib.stdcall('WaitInputContent', 'bool', ['char *', 'uint']);
-            const SetOutputContent = this.lib.stdcall('SetOutputContent', 'bool', ['char *', 'uint']);
-
-            console.log('Functions loaded successfully with stdcall');
-
-            return {
-                GetHtmlContent,
-                WaitInputContent,
-                SetOutputContent
-            };
-        } catch (error) {
-            console.error(`Failed to load functions: ${error}`);
-
-            // 备选方法
-            console.log('Trying alternative function loading method...');
-
-            return {
-                GetHtmlContent: (buffer: Buffer, length: number) => {
-                    console.log('Fallback: Calling GetHtmlContent');
-                    try {
-                        const func = this.lib.func('bool', 'GetHtmlContent', ['char *', 'uint']);
-                        return func(buffer, length);
-                    } catch (e: any) {
-                        console.error('Fallback error:', e);
-                        return false;
-                    }
-                },
-                WaitInputContent: (buffer: Buffer, length: number) => {
-                    console.log('Fallback: Calling WaitInputContent');
-                    try {
-                        const func = this.lib.func('bool', 'WaitInputContent', ['char *', 'uint']);
-                        return func(buffer, length);
-                    } catch (e: any) {
-                        console.error('Fallback error:', e);
-                        return false;
-                    }
-                },
-                SetOutputContent: (buffer: Buffer, length: number) => {
-                    console.log('Fallback: Calling SetOutputContent');
-                    try {
-                        const func = this.lib.func('bool', 'SetOutputContent', ['char *', 'uint']);
-                        return func(buffer, length);
-                    } catch (e: any) {
-                        console.error('Fallback error:', e);
-                        return false;
-                    }
+    private resolveDllPath(userPath: string): string {
+        const pathModule = require('path');
+        const fs = require('fs');
+        
+        // 尝试的路径列表
+        const possiblePaths = [
+            userPath,
+            pathModule.resolve(userPath),
+            pathModule.join(process.cwd(), userPath),
+            pathModule.join(__dirname, userPath),
+            pathModule.join(process.resourcesPath || process.cwd(), userPath),
+            pathModule.join(process.resourcesPath || process.cwd(), 'app.asar.unpacked', userPath),
+            pathModule.join(process.resourcesPath || process.cwd(), '..', userPath)
+        ];
+        
+        for (const p of possiblePaths) {
+            try {
+                const fullPath = pathModule.resolve(p);
+                if (fs.existsSync(fullPath)) {
+                    console.log('找到DLL文件:', fullPath);
+                    return fullPath;
                 }
-            };
+            } catch (e) {
+                // 忽略错误
+            }
+        }
+        
+        console.warn(`未找到DLL文件，将使用路径: ${userPath}`);
+        return userPath;
+    }
+
+    private getFunction(name: string): any {
+        if (!this.isDllLoaded) {
+            throw new Error('DLL未加载');
+        }
+        
+        try {
+            // 使用stdcall调用约定
+            return this.lib.stdcall(name, 'bool', ['char *', 'uint']);
+        } catch (error) {
+            console.error(`加载函数 ${name} 失败:`, error);
+            throw error;
+        }
+    }
+
+    private getCallbackFunction(name: string, signature: string): any {
+        if (!this.isDllLoaded) {
+            throw new Error('DLL未加载');
+        }
+        
+        try {
+            // 使用stdcall调用约定
+            return this.lib.stdcall(name, 'int', [signature]);
+        } catch (error) {
+            console.error(`加载回调函数 ${name} 失败:`, error);
+            throw error;
+        }
+    }
+
+    private getStopFunction(name: string): any {
+        if (!this.isDllLoaded) {
+            throw new Error('DLL未加载');
+        }
+        
+        try {
+            // 使用stdcall调用约定
+            return this.lib.stdcall(name, 'bool', ['uintptr_t']);
+        } catch (error) {
+            console.error(`加载停止函数 ${name} 失败:`, error);
+            throw error;
         }
     }
 
     /**
      * 获取HTML内容
-     * @returns HTML内容字符串，如果失败则返回null
      */
     public getHtmlContent(): string | null {
+        if (!this.isDllLoaded) {
+            console.error('DLL未加载，无法获取HTML内容');
+            return null;
+        }
+        
         try {
-            console.log('Calling GetHtmlContent...');
-
-            // 清空缓冲区
-            this.htmlBuffer.fill(0);
-
-            // 调用DLL函数
-            const success = this.pipeFunctions.GetHtmlContent(this.htmlBuffer, this.bufferSize);
-
-            console.log(`GetHtmlContent returned: ${success}`);
-
+            console.log(`调用GetHtmlContent，缓冲区大小: ${this.bufferSize}字节`);
+            
+            const buffer = Buffer.alloc(this.bufferSize, 0);
+            const func = this.getFunction('GetHtmlContent');
+            const success = func(buffer, this.bufferSize);
+            
+            console.log(`GetHtmlContent返回: ${success}`);
+            
             if (!success) {
-                console.error('GetHtmlContent failed');
+                console.error('GetHtmlContent调用失败');
                 return null;
             }
-
-            // 将缓冲区转换为字符串（以null结尾）
-            const content = this.readNullTerminatedString(this.htmlBuffer);
-            console.log(`Got HTML content, length: ${content.length}`);
-
+            
+            const nullIndex = buffer.indexOf(0);
+            const content = nullIndex === -1 
+                ? buffer.toString('utf8')
+                : buffer.slice(0, nullIndex).toString('utf8');
+            
+            console.log(`获取到HTML内容，长度: ${content.length}字节`);
+            
             return content;
         } catch (error) {
-            console.error(`Error in getHtmlContent: ${error}`);
+            console.error('获取HTML内容时出错:', error);
             return null;
         }
     }
 
     /**
-     * 等待输入内容（阻塞调用）
-     * @returns 接收到的消息字符串，如果失败则返回null
-     */
-    public waitForInput(): string | null {
-        try {
-            console.log('Waiting for input content...');
-
-            // 清空缓冲区
-            this.inputBuffer.fill(0);
-
-            // 调用DLL函数（阻塞直到有数据）
-            const success = this.pipeFunctions.WaitInputContent(this.inputBuffer, this.bufferSize);
-
-            console.log(`WaitInputContent returned: ${success}`);
-
-            if (!success) {
-                console.error('WaitInputContent failed');
-                return null;
-            }
-
-            // 将缓冲区转换为字符串（以null结尾）
-            const message = this.readNullTerminatedString(this.inputBuffer);
-            console.log(`Received message from input: ${message.length} characters`);
-
-            return message;
-        } catch (error) {
-            console.error(`Error in waitForInput: ${error}`);
-            return null;
-        }
-    }
-
-    /**
-     * 异步等待输入内容（非阻塞）
-     * @param callback 接收到消息时的回调函数
-     * @param interval 轮询间隔（毫秒），默认为100ms
-     * @returns 返回一个清理函数，用于停止监听
-     */
-    public waitForInputAsync(callback: (message: string | null) => void, interval: number = 100): () => void {
-        console.log('Starting async input listener');
-
-        let isRunning = true;
-
-        const checkInput = () => {
-            if (!isRunning) return;
-
-            try {
-                // 直接调用（在Electron中，我们有Node.js环境，不需要Worker）
-                const message = this.waitForInput();
-
-                if (message !== null) {
-                    callback(message);
-                }
-            } catch (error) {
-                console.error(`Error in async input: ${error}`);
-                callback(null);
-            }
-
-            // 继续监听
-            if (isRunning) {
-                setTimeout(checkInput, interval);
-            }
-        };
-
-        // 开始监听
-        checkInput();
-
-        // 返回停止函数
-        const stopFunction = () => {
-            console.log('Stopping async input listener');
-            isRunning = false;
-        };
-
-        this.stopInputListener = stopFunction;
-        return stopFunction;
-    }
-
-    /**
-     * 设置输出内容
-     * @param content 要发送的内容
+     * 设置输入内容回调
+     * @param callback 回调函数，当接收到输入数据时调用
      * @returns 是否成功
      */
-    public setOutputContent(content: string): boolean {
+    public setInputContentCallback(callback: (data: string) => void): boolean {
+        if (!this.isDllLoaded) {
+            console.error('DLL未加载，无法设置回调');
+            return false;
+        }
+        
+        if (this.isListening) {
+            console.warn('已经在监听中，先停止当前监听');
+            this.stopInputListener();
+        }
+        
         try {
-            console.log(`Setting output content: ${content.length} characters`);
-
-            // 检查内容长度是否超过缓冲区大小
-            if (content.length >= this.bufferSize) {
-                console.warn(`Content too long (${content.length} chars), truncating to ${this.bufferSize - 1} chars`);
-            }
-
-            // 准备输出缓冲区
-            this.outputBuffer.fill(0);
-
-            // 将字符串写入缓冲区
-            const bytesWritten = this.outputBuffer.write(content, 0, Math.min(content.length, this.bufferSize - 1), 'utf8');
-
-            console.log(`Writing ${bytesWritten} bytes to output buffer`);
-
-            // 调用DLL函数 - 传递Buffer和长度
-            const success = this.pipeFunctions.SetOutputContent(this.outputBuffer, bytesWritten);
-
-            console.log(`SetOutputContent returned: ${success}`);
-
-            if (success) {
-                console.log('Output content sent successfully');
+            console.log('设置输入内容回调...');
+            
+            // 创建Koffi回调函数
+            const koffiCallback = koffi.callback('bool', ['char *', 'int'], (dataPtr: Buffer, length: number) => {
+                try {
+                    // 将缓冲区数据转换为字符串
+                    const data = this.bufferToString(dataPtr, length);
+                    console.log(`回调接收到数据，长度: ${data.length}字节`);
+                    
+                    // 调用用户回调
+                    callback(data);
+                    return true;
+                } catch (error) {
+                    console.error('回调函数执行错误:', error);
+                    return false;
+                }
+            });
+            
+            // 获取SetInputContentCallback函数
+            const setCallbackFunc = this.getCallbackFunction('SetInputContentCallback', 'bool (*)(char*, int)');
+            
+            // 调用DLL设置回调
+            this.callbackHandle = setCallbackFunc(koffiCallback);
+            
+            if (this.callbackHandle !== 0) {
+                this.activeCallback = koffiCallback;
+                this.isListening = true;
+                console.log(`✅ 回调设置成功，句柄: ${this.callbackHandle}`);
+                return true;
             } else {
-                console.error('SetOutputContent failed');
+                console.error('设置回调失败，返回句柄为0');
+                return false;
             }
-
-            return success;
         } catch (error) {
-            console.error(`Error in setOutputContent: ${error}`);
+            console.error('设置回调时出错:', error);
             return false;
         }
     }
 
     /**
-     * 读取以null结尾的字符串
+     * 停止输入监听
+     * @returns 是否成功
      */
-    private readNullTerminatedString(buffer: Buffer): string {
-        // 找到第一个null字节
-        let nullIndex = buffer.indexOf(0);
-        if (nullIndex === -1) {
-            nullIndex = buffer.length;
+    public stopInputListener(): boolean {
+        if (!this.isDllLoaded || !this.isListening) {
+            console.warn('未在监听状态或DLL未加载');
+            return false;
         }
-
-        // 提取有效部分
-        const validBuffer = buffer.slice(0, nullIndex);
-        return validBuffer.toString('utf8');
+        
+        try {
+            console.log(`停止输入监听，句柄: ${this.callbackHandle}`);
+            
+            const stopFunc = this.getStopFunction('StopInputListener');
+            const success = stopFunc(this.callbackHandle);
+            
+            if (success) {
+                this.isListening = false;
+                this.callbackHandle = 0;
+                this.activeCallback = null;
+                console.log('✅ 输入监听已停止');
+            } else {
+                console.error('停止输入监听失败');
+            }
+            
+            return success;
+        } catch (error) {
+            console.error('停止输入监听时出错:', error);
+            return false;
+        }
     }
 
     /**
-     * 释放资源
+     * 设置输出内容
+     */
+    public setOutputContent(content: string): boolean {
+        if (!this.isDllLoaded) {
+            console.error('DLL未加载，无法设置输出内容');
+            return false;
+        }
+        
+        try {
+            console.log(`调用SetOutputContent，内容长度: ${content.length}字节`);
+            
+            const maxLength = this.bufferSize - 1;
+            const safeContent = content.length > maxLength 
+                ? content.substring(0, maxLength)
+                : content;
+            
+            const buffer = Buffer.from(safeContent, 'utf8');
+            const func = this.getFunction('SetOutputContent');
+            const success = func(buffer, buffer.length);
+            
+            console.log(`SetOutputContent返回: ${success}`);
+            
+            return success;
+        } catch (error) {
+            console.error('设置输出内容时出错:', error);
+            return false;
+        }
+    }
+
+    /**
+     * 等待输入内容（阻塞调用）
+     */
+    public waitForInput(): string | null {
+        if (!this.isDllLoaded) {
+            console.error('DLL未加载，无法等待输入');
+            return null;
+        }
+        
+        try {
+            console.log(`调用WaitInputContent，缓冲区大小: ${this.bufferSize}字节`);
+            
+            const buffer = Buffer.alloc(this.bufferSize, 0);
+            const func = this.getFunction('WaitInputContent');
+            const success = func(buffer, this.bufferSize);
+            
+            console.log(`WaitInputContent返回: ${success}`);
+            
+            if (!success) {
+                console.error('WaitInputContent调用失败');
+                return null;
+            }
+            
+            const nullIndex = buffer.indexOf(0);
+            const content = nullIndex === -1 
+                ? buffer.toString('utf8')
+                : buffer.slice(0, nullIndex).toString('utf8');
+            
+            console.log(`获取到输入内容，长度: ${content.length}字节`);
+            
+            return content;
+        } catch (error) {
+            console.error('等待输入时出错:', error);
+            return null;
+        }
+    }
+
+    /**
+     * 将缓冲区转换为字符串
+     */
+    private bufferToString(buffer: Buffer, length: number): string {
+        // 确保长度不超过缓冲区大小
+        const safeLength = Math.min(length, buffer.length);
+        
+        // 查找null终止符
+        const nullIndex = buffer.indexOf(0);
+        const finalLength = nullIndex === -1 ? safeLength : Math.min(nullIndex, safeLength);
+        
+        return buffer.slice(0, finalLength).toString('utf8');
+    }
+
+    /**
+     * 检查是否正在监听
+     */
+    public isListeningActive(): boolean {
+        return this.isListening;
+    }
+
+    /**
+     * 检查DLL是否就绪
+     */
+    public isReady(): boolean {
+        return this.isDllLoaded;
+    }
+
+    /**
+     * 清理资源
      */
     public dispose(): void {
-        console.log('Disposing PipeManager resources');
-
-        // 停止输入监听
-        if (this.stopInputListener) {
+        console.log('清理CallbackPipeManager资源...');
+        
+        // 停止监听
+        if (this.isListening) {
             this.stopInputListener();
-            this.stopInputListener = null;
         }
-
-        // 注意：koffi目前没有显式的卸载方法
-        // 在实际应用中，可能需要考虑内存管理
-    }
-
-
-    /**
-     * 获取环境变量信息
-     */
-    public getEnvironmentInfo(): any {
-        return {
-            ELECTRON_HTML_PIPE: process.env.ELECTRON_HTML_PIPE,
-            ELECTRON_INPUT_PIPE: process.env.ELECTRON_INPUT_PIPE,
-            ELECTRON_OUTPUT_PIPE: process.env.ELECTRON_OUTPUT_PIPE,
-            dllPath: this.dllPath,
-            bufferSize: this.bufferSize
-        };
+        
+        // 注意：koffi回调函数不需要手动清理，但我们可以清空引用
+        this.activeCallback = null;
+        this.lib = null;
+        
+        console.log('✅ 资源清理完成');
     }
 }
 
-// 导出类
-export default PipeManager;
-
-// 导出工厂函数
-export function createPipeManager(dllPath?: string, bufferSize?: number): PipeManager {
-    return new PipeManager(dllPath, bufferSize);
-}
+export default CallbackPipeManager;
