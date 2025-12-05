@@ -244,57 +244,15 @@ class PipeElectronApp {
             this.sendMessageToRenderer(JSON.stringify(data));
             return;
         }
-
-        switch (data.type) {
-            case 'html':
-                // 如果是HTML内容，直接加载到窗口
-                if (data.content && this.mainWindow) {
-                    console.log('加载HTML内容到窗口...');
-                    this.replaceWindowContent(data.content);
-                }
-                break;
-
-            case 'command':
-                // 处理命令
-                this.handleCommand(data);
-                break;
-
-            case 'status':
-                // 状态更新
-                console.log('状态更新:', data);
-                break;
-
-            default:
-                // 其他类型的数据发送到渲染进程
-                this.sendMessageToRenderer(JSON.stringify(data));
+        if (data.type == 'html') {
+            if (data.content && this.mainWindow) {
+                console.log('加载HTML内容到窗口...');
+                this.replaceWindowContent(data.content);
+                return;
+            }
         }
-    }
-
-    private handleCommand(command: any): void {
-        console.log('处理命令:', command);
-
-        switch (command.command) {
-            case 'reload':
-                if (this.mainWindow) {
-                    this.mainWindow.reload();
-                }
-                break;
-
-            case 'close':
-                if (this.mainWindow) {
-                    this.mainWindow.close();
-                }
-                break;
-
-            case 'devtools':
-                if (this.mainWindow) {
-                    this.mainWindow.webContents.toggleDevTools();
-                }
-                break;
-
-            default:
-                console.log('未知命令:', command);
-        }
+        this.sendMessageToRenderer(JSON.stringify(data));
+        return;
     }
 
     private loadHtmlContent(): void {
