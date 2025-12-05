@@ -187,9 +187,9 @@ extern"C" WEBHELPER_API bool __stdcall GetHtmlContent(char* res, const unsigned 
     }
 }
 
-bool InputContentCallbackd(bool (*callback)(char*, int)) {
+bool InputContentCallbackd(bool (*callback)(char*, int), HANDLE waithl) {
     HANDLE inputPipe = GetHandleFromEnvironment("ELECTRON_INPUT_PIPE");
-    while(true){
+    while(WaitForSingleObject(waithl,5)== WAIT_OBJECT_0){
         if (!CheckHandleValidity(inputPipe, "Input pipe")) {
             return false;
         }
@@ -205,6 +205,10 @@ bool InputContentCallbackd(bool (*callback)(char*, int)) {
             }
             if (bytesAvailable != 0)
                 break;
+            if (WaitForSingleObject(waithl, 5) != WAIT_OBJECT_0)
+            {
+                goto _exit1;
+            }
         }
 
         // 读取输入内容
@@ -272,17 +276,21 @@ bool InputContentCallbackd(bool (*callback)(char*, int)) {
             std::cout << "No input content was read!" << std::endl;
         }
     }
+_exit1:
+    std::cerr << "线程退出" <<std::endl;
+    return 0;
 }
 
 extern "C" WEBHELPER_API int __stdcall SetInputContentCallback(bool (*callback)(char*, int)) {
-    std::thread ic(InputContentCallbackd,callback);
+    HANDLE stophl = CreateEvent(NULL, TRUE, TRUE, NULL);
+    std::thread ic(InputContentCallbackd,callback,stophl);
     ic.detach();
-    return (uintptr_t)ic.native_handle();
+    return (uintptr_t)stophl;
 }
 
 extern "C" WEBHELPER_API bool __stdcall StopInputListener(uintptr_t hl) {
     HANDLE threadHl = reinterpret_cast<HANDLE>(hl);
-    return TerminateThread(threadHl, 0);
+    return ResetEvent(threadHl);
 }
 
 extern "C" WEBHELPER_API bool __stdcall SetOutputContent(char* str, const unsigned int len) {

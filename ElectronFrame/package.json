@@ -12,9 +12,6 @@
     "package": "electron-builder --win",
     "dist": "npm run rebuild && npm run build && npm run package"
   },
-  "dependencies": {
-    "koffi": "^2.8.0"
-  },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
     "@types/node": "^20.14.9",
@@ -50,9 +47,14 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [ "x64" ]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     }
+  },
+  "dependencies": {
+    "koffi": "^2.14.1"
   }
 }
