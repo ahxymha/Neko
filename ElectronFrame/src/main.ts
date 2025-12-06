@@ -54,6 +54,8 @@ class PipeElectronApp {
             }
         });
 
+        this.mainWindow.removeMenu();
+
         // 加载简单的加载页面
         this.loadLoadingPage();
 
