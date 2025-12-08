@@ -18,7 +18,7 @@
 
 #pragma comment(lib, "dbghelp.lib")
 
-// ÏûÏ¢¶ÓÁĞÄ£°åÀà
+// æ¶ˆæ¯é˜Ÿåˆ—æ¨¡æ¿ç±»
 template <typename T>
 class MessageQueue {
 public:
@@ -58,7 +58,7 @@ private:
 
 class Logger {
 public:
-    // ÈÕÖ¾¼¶±ğÃ¶¾Ù
+    // æ—¥å¿—çº§åˆ«æšä¸¾
     enum class LogLevel {
         DEBUG,
         INFO,
@@ -70,7 +70,7 @@ public:
         PANIC
     };
 
-    // ÈÕÖ¾½á¹¹Ìå
+    // æ—¥å¿—ç»“æ„ä½“
     struct Log {
         std::string content;
         Logger::LogLevel level;
@@ -78,7 +78,7 @@ public:
     };
 
 private:
-    // ÈÕÖ¾Ğ´ÈëÆ÷Àà
+    // æ—¥å¿—å†™å…¥å™¨ç±»
     class LogWriter {
     private:
         std::stringstream _buffer;
@@ -99,7 +99,7 @@ private:
             return *this;
         }
 
-        // ´¦Àí std::endl µÈÌØÊâ²Ù×÷·û
+        // å¤„ç† std::endl ç­‰ç‰¹æ®Šæ“ä½œç¬¦
         LogWriter& operator<<(std::ostream& (*manip)(std::ostream&)) {
             _buffer << manip;
             return *this;
@@ -111,23 +111,23 @@ private:
     std::atomic<bool> _running;
     std::mutex _consoleMutex;
 
-    // µ¥ÀıÊµÀı
+    // å•ä¾‹å®ä¾‹
     static Logger& getInstance() {
         static Logger instance;
         return instance;
     }
 
-    // Ë½ÓĞ¹¹Ôìº¯Êı
+    // ç§æœ‰æ„é€ å‡½æ•°
     Logger() : _running(false) {
         _running = true;
         _logThread = std::thread(&Logger::logWorker, this);
     }
 
-    // ½ûÓÃ¿½±´ºÍ¸³Öµ
+    // ç¦ç”¨æ‹·è´å’Œèµ‹å€¼
     Logger(const Logger&) = delete;
     Logger& operator=(const Logger&) = delete;
 
-    // Éú³É×ª´¢ÎÄ¼ş£¨Windows£©
+    // ç”Ÿæˆè½¬å‚¨æ–‡ä»¶ï¼ˆWindowsï¼‰
     static void generateDump() {
         HANDLE hDumpFile = CreateFileW(
             L"logger_coredump.dmp",
@@ -159,7 +159,7 @@ private:
         }
     }
 
-    // ÈÕÖ¾´¦ÀíÏß³Ìº¯Êı
+    // æ—¥å¿—å¤„ç†çº¿ç¨‹å‡½æ•°
     void logWorker() {
         while (_running) {
             Log logEntry;
@@ -167,13 +167,13 @@ private:
 
             if (!_running) break;
 
-            // ¸ñÊ½»¯Ê±¼ä
+            // æ ¼å¼åŒ–æ—¶é—´
             struct tm timeinfo;
             localtime_s(&timeinfo, &logEntry.time);
             char timeStr[64];
             strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
 
-            // »ñÈ¡¼¶±ğ×Ö·û´®
+            // è·å–çº§åˆ«å­—ç¬¦ä¸²
             std::string levelStr;
             switch (logEntry.level) {
             case LogLevel::DEBUG: levelStr = "DEBUG"; break;
@@ -183,28 +183,28 @@ private:
             case LogLevel::PANIC: levelStr = "PANIC"; break;
             }
 
-            // Êä³öµ½¿ØÖÆÌ¨
+            // è¾“å‡ºåˆ°æ§åˆ¶å°
             {
                 std::lock_guard<std::mutex> lock(_consoleMutex);
                 HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
-                // ¸ù¾İÈÕÖ¾¼¶±ğÉèÖÃÑÕÉ«
+                // æ ¹æ®æ—¥å¿—çº§åˆ«è®¾ç½®é¢œè‰²
                 WORD color;
                 switch (logEntry.level) {
-                case LogLevel::DEBUG: color = FOREGROUND_BLUE | FOREGROUND_GREEN; break;  // ÇàÉ«
-                case LogLevel::INFO: color = FOREGROUND_GREEN | FOREGROUND_INTENSITY; break;  // ÁÁÂÌÉ«
-                case LogLevel::WARNING: color = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY; break;  // »ÆÉ«
-                case LogLevel::ERROR: color = FOREGROUND_RED | FOREGROUND_INTENSITY; break;  // ÁÁºìÉ«
-                case LogLevel::PANIC: color = FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY; break;  // ÁÁ×ÏÉ«
-                default: color = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE; // °×É«
+                case LogLevel::DEBUG: color = FOREGROUND_BLUE | FOREGROUND_GREEN; break;  // é’è‰²
+                case LogLevel::INFO: color = FOREGROUND_GREEN | FOREGROUND_INTENSITY; break;  // äº®ç»¿è‰²
+                case LogLevel::WARNING: color = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY; break;  // é»„è‰²
+                case LogLevel::ERROR: color = FOREGROUND_RED | FOREGROUND_INTENSITY; break;  // äº®çº¢è‰²
+                case LogLevel::PANIC: color = FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY; break;  // äº®ç´«è‰²
+                default: color = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE; // ç™½è‰²
                 }
 
                 SetConsoleTextAttribute(hConsole, color);
                 std::cout << timeStr << " [" << levelStr << "] " << logEntry.content << std::endl;
-                SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE); // »Ö¸´Ä¬ÈÏÑÕÉ«
+                SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE); // æ¢å¤é»˜è®¤é¢œè‰²
             }
 
-            // Èç¹ûÊÇ PANIC ¼¶±ğ£¬Éú³É×ª´¢ÎÄ¼ş²¢ÖÕÖ¹³ÌĞò
+            // å¦‚æœæ˜¯ PANIC çº§åˆ«ï¼Œç”Ÿæˆè½¬å‚¨æ–‡ä»¶å¹¶ç»ˆæ­¢ç¨‹åº
             if (logEntry.level == LogLevel::PANIC) {
                 std::cerr << "PANIC level log detected. Generating core dump..." << std::endl;
                 generateDump();
@@ -213,7 +213,7 @@ private:
         }
     }
 
-    // Ğ´ÈëÈÕÖ¾µ½¶ÓÁĞ
+    // å†™å…¥æ—¥å¿—åˆ°é˜Ÿåˆ—
     void writeLog(const std::string& content, LogLevel level) {
         Log logEntry;
         logEntry.content = content;
@@ -227,18 +227,18 @@ public:
         stop();
     }
 
-    // Í£Ö¹ÈÕÖ¾ÏµÍ³
+    // åœæ­¢æ—¥å¿—ç³»ç»Ÿ
     void stop() {
         if (_running) {
             _running = false;
-            // ÍÆËÍÒ»¸ö¿ÕÈÕÖ¾À´»½ĞÑµÈ´ıµÄÏß³Ì
+            // æ¨é€ä¸€ä¸ªç©ºæ—¥å¿—æ¥å”¤é†’ç­‰å¾…çš„çº¿ç¨‹
             Log dummyLog;
             _logQueue.push(dummyLog);
             if (_logThread.joinable()) {
                 _logThread.join();
             }
 
-            // Êä³öÊ£ÓàµÄÈÕÖ¾
+            // è¾“å‡ºå‰©ä½™çš„æ—¥å¿—
             Log logEntry;
             while (_logQueue.poll(logEntry)) {
                 struct tm timeinfo;
@@ -260,24 +260,24 @@ public:
         }
     }
 
-    // »ñÈ¡µ¥ÀıÊµÀıµÄ¾²Ì¬·½·¨
+    // è·å–å•ä¾‹å®ä¾‹çš„é™æ€æ–¹æ³•
     static Logger& instance() {
         return getInstance();
     }
 
-    // ¾²Ì¬±ã½İ·½·¨£¬ÓÃÓÚ»ñÈ¡ÈÕÖ¾Ğ´ÈëÆ÷
+    // é™æ€ä¾¿æ·æ–¹æ³•ï¼Œç”¨äºè·å–æ—¥å¿—å†™å…¥å™¨
     static LogWriter log(LogLevel level) {
         return LogWriter(level);
     }
 
-    // ¾²Ì¬±ã½İ·½·¨
+    // é™æ€ä¾¿æ·æ–¹æ³•
     static LogWriter debug() { return log(LogLevel::DEBUG); }
     static LogWriter info() { return log(LogLevel::INFO); }
     static LogWriter warning() { return log(LogLevel::WARNING); }
     static LogWriter error() { return log(LogLevel::ERROR); }
     static LogWriter panic() { return log(LogLevel::PANIC); }
 
-    // »ñÈ¡¶ÓÁĞ´óĞ¡£¨ÓÃÓÚ²âÊÔ£©
+    // è·å–é˜Ÿåˆ—å¤§å°ï¼ˆç”¨äºæµ‹è¯•ï¼‰
     size_t queueSize() {
         return _logQueue.size();
     }

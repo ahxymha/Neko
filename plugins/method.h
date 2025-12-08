@@ -56,13 +56,13 @@ private:
     std::atomic<bool> m_watching;
     std::thread m_watchThread;
 
-    // »Øµ÷º¯ÊıÀàĞÍ
+    // å›è°ƒå‡½æ•°ç±»å‹
     std::function<void(DWORD, const std::wstring&,MessageQueue<std::wstring> &msg)> m_callback;
 
-    // ÊÂ¼şÓÃÓÚÍ£Ö¹¼à¿Ø
+    // äº‹ä»¶ç”¨äºåœæ­¢ç›‘æ§
     HANDLE m_stopEvent;
 
-    // »º³åÇø´óĞ¡
+    // ç¼“å†²åŒºå¤§å°
     static const DWORD BUFFER_SIZE = 64 * 1024;
 
 public:
@@ -79,7 +79,7 @@ public:
         StopWatching();
     }
 
-    // ¿ªÊ¼¼à¿ØÄ¿Â¼
+    // å¼€å§‹ç›‘æ§ç›®å½•
     bool StartWatching(const std::wstring& directoryPath,
         std::function<void(DWORD, const std::wstring&,MessageQueue<std::wstring> &msg)> callback) {
         if (m_watching) {
@@ -89,13 +89,13 @@ public:
         m_directoryPath = directoryPath;
         m_callback = callback;
 
-        // ´´½¨Í£Ö¹ÊÂ¼ş
+        // åˆ›å»ºåœæ­¢äº‹ä»¶
         m_stopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         if (!m_stopEvent) {
             return false;
         }
 
-        // ´ò¿ªÄ¿Â¼
+        // æ‰“å¼€ç›®å½•
         m_directoryHandle = CreateFileW(
             directoryPath.c_str(),
             FILE_LIST_DIRECTORY,
@@ -107,13 +107,13 @@ public:
         );
 
         if (m_directoryHandle == INVALID_HANDLE_VALUE) {
-            std::wcerr << L"ÎŞ·¨´ò¿ªÄ¿Â¼: " << directoryPath << L", ´íÎó: " << GetLastError() << std::endl;
+            std::wcerr << L"æ— æ³•æ‰“å¼€ç›®å½•: " << directoryPath << L", é”™è¯¯: " << GetLastError() << std::endl;
             CloseHandle(m_stopEvent);
             m_stopEvent = NULL;
             return false;
         }
 
-        // ´´½¨Íê³É¶Ë¿Ú
+        // åˆ›å»ºå®Œæˆç«¯å£
         m_completionPort = CreateIoCompletionPort(m_directoryHandle, NULL, 0, 0);
         if (!m_completionPort) {
             CloseHandle(m_directoryHandle);
@@ -125,24 +125,24 @@ public:
 
         m_watching = true;
 
-        // Æô¶¯¼à¿ØÏß³Ì
+        // å¯åŠ¨ç›‘æ§çº¿ç¨‹
         m_watchThread = std::thread(&DirectoryWatcher::WatchThreadProc, this);
 
         return true;
     }
 
-    // Í£Ö¹¼à¿Ø
+    // åœæ­¢ç›‘æ§
     void StopWatching() {
         if (!m_watching) return;
 
         m_watching = false;
 
-        // ÉèÖÃÍ£Ö¹ÊÂ¼ş
+        // è®¾ç½®åœæ­¢äº‹ä»¶
         if (m_stopEvent) {
             SetEvent(m_stopEvent);
         }
 
-        // ÏòÍê³É¶Ë¿Ú·¢ËÍÍË³öÏûÏ¢
+        // å‘å®Œæˆç«¯å£å‘é€é€€å‡ºæ¶ˆæ¯
         if (m_completionPort) {
             PostQueuedCompletionStatus(m_completionPort, 0, 0, NULL);
         }
@@ -167,20 +167,20 @@ public:
         }
     }
 
-    // ¼ì²éÊÇ·ñÕıÔÚ¼à¿Ø
+    // æ£€æŸ¥æ˜¯å¦æ­£åœ¨ç›‘æ§
     bool IsWatching() const {
         return m_watching;
     }
 
 private:
-    // ¼à¿ØÏß³Ìº¯Êı
+    // ç›‘æ§çº¿ç¨‹å‡½æ•°
     void WatchThreadProc() {
         std::vector<BYTE> buffer(BUFFER_SIZE);
         DWORD bytesReturned;
         ULONG_PTR completionKey;
         OVERLAPPED* overlapped;
 
-        // ¿ªÊ¼µÚÒ»´Î¶ÁÈ¡
+        // å¼€å§‹ç¬¬ä¸€æ¬¡è¯»å–
         if (!ReadDirectoryChanges(buffer)) {
             return;
         }
@@ -188,13 +188,13 @@ private:
         while (m_watching) {
             HANDLE waitHandles[2] = { m_completionPort, m_stopEvent };
 
-            // µÈ´ıÍê³É¶Ë¿Ú»òÍ£Ö¹ÊÂ¼ş
+            // ç­‰å¾…å®Œæˆç«¯å£æˆ–åœæ­¢äº‹ä»¶
             DWORD waitResult = WaitForMultipleObjects(2, waitHandles, FALSE, INFINITE);
 
             if (!m_watching) break;
 
             switch (waitResult) {
-            case WAIT_OBJECT_0: // Íê³É¶Ë¿ÚÓĞÏûÏ¢
+            case WAIT_OBJECT_0: // å®Œæˆç«¯å£æœ‰æ¶ˆæ¯
             {
                 BOOL result = GetQueuedCompletionStatus(
                     m_completionPort,
@@ -207,16 +207,16 @@ private:
                 if (!result) {
                     DWORD error = GetLastError();
                     if (error != ERROR_OPERATION_ABORTED && error != WAIT_TIMEOUT) {
-                        std::wcerr << L"GetQueuedCompletionStatus Ê§°Ü, ´íÎó: " << error << std::endl;
+                        std::wcerr << L"GetQueuedCompletionStatus å¤±è´¥, é”™è¯¯: " << error << std::endl;
                     }
                     break;
                 }
 
                 if (bytesReturned > 0) {
-                    // ´¦ÀíÄ¿Â¼±ä»¯
+                    // å¤„ç†ç›®å½•å˜åŒ–
                     ProcessDirectoryChanges(buffer.data(), bytesReturned);
 
-                    // ÖØĞÂ¿ªÊ¼¼à¿Ø
+                    // é‡æ–°å¼€å§‹ç›‘æ§
                     if (!ReadDirectoryChanges(buffer)) {
                         m_watching = false;
                     }
@@ -224,7 +224,7 @@ private:
             }
             break;
 
-            case WAIT_OBJECT_0 + 1: // Í£Ö¹ÊÂ¼ş
+            case WAIT_OBJECT_0 + 1: // åœæ­¢äº‹ä»¶
                 m_watching = false;
                 break;
 
@@ -234,7 +234,7 @@ private:
         }
     }
 
-    // ¿ªÊ¼¶ÁÈ¡Ä¿Â¼±ä»¯
+    // å¼€å§‹è¯»å–ç›®å½•å˜åŒ–
     bool ReadDirectoryChanges(std::vector<BYTE>& buffer) {
         DWORD bytesReturned;
 
@@ -242,14 +242,14 @@ private:
             m_directoryHandle,
             buffer.data(),
             BUFFER_SIZE,
-            FALSE,  // ¼à¿Ø×ÓÄ¿Â¼
-            FILE_NOTIFY_CHANGE_FILE_NAME |    // ÎÄ¼ş´´½¨¡¢É¾³ı¡¢ÖØÃüÃû
-            FILE_NOTIFY_CHANGE_ATTRIBUTES |   // ÊôĞÔ±ä»¯
-            FILE_NOTIFY_CHANGE_SIZE |         // ÎÄ¼ş´óĞ¡±ä»¯
-            FILE_NOTIFY_CHANGE_LAST_WRITE |   // ×îºóĞ´ÈëÊ±¼ä
-            FILE_NOTIFY_CHANGE_LAST_ACCESS |  // ×îºó·ÃÎÊÊ±¼ä
-            FILE_NOTIFY_CHANGE_CREATION |     // ´´½¨Ê±¼ä
-            FILE_NOTIFY_CHANGE_SECURITY,      // °²È«ÃèÊö·û±ä»¯
+            FALSE,  // ç›‘æ§å­ç›®å½•
+            FILE_NOTIFY_CHANGE_FILE_NAME |    // æ–‡ä»¶åˆ›å»ºã€åˆ é™¤ã€é‡å‘½å
+            FILE_NOTIFY_CHANGE_ATTRIBUTES |   // å±æ€§å˜åŒ–
+            FILE_NOTIFY_CHANGE_SIZE |         // æ–‡ä»¶å¤§å°å˜åŒ–
+            FILE_NOTIFY_CHANGE_LAST_WRITE |   // æœ€åå†™å…¥æ—¶é—´
+            FILE_NOTIFY_CHANGE_LAST_ACCESS |  // æœ€åè®¿é—®æ—¶é—´
+            FILE_NOTIFY_CHANGE_CREATION |     // åˆ›å»ºæ—¶é—´
+            FILE_NOTIFY_CHANGE_SECURITY,      // å®‰å…¨æè¿°ç¬¦å˜åŒ–
             &bytesReturned,
             &m_overlapped,
             NULL
@@ -258,7 +258,7 @@ private:
         if (!result) {
             DWORD error = GetLastError();
             if (error != ERROR_IO_PENDING) {
-                std::wcerr << L"ReadDirectoryChangesW Ê§°Ü, ´íÎó: " << error << std::endl;
+                std::wcerr << L"ReadDirectoryChangesW å¤±è´¥, é”™è¯¯: " << error << std::endl;
                 return false;
             }
         }
@@ -266,22 +266,22 @@ private:
         return true;
     }
 
-    // ´¦ÀíÄ¿Â¼±ä»¯
+    // å¤„ç†ç›®å½•å˜åŒ–
     void ProcessDirectoryChanges(const BYTE* buffer, DWORD bufferSize) {
         const FILE_NOTIFY_INFORMATION* notifyInfo =
             reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(buffer);
 
         while (true) {
-            // ×ª»»ÎÄ¼şÃû
+            // è½¬æ¢æ–‡ä»¶å
             std::wstring fileName(notifyInfo->FileName,
                 notifyInfo->FileNameLength / sizeof(WCHAR));
 
-            // µ÷ÓÃ»Øµ÷º¯Êı
+            // è°ƒç”¨å›è°ƒå‡½æ•°
             if (m_callback) {
                 m_callback(notifyInfo->Action, fileName,filequeue);
             }
 
-            // ÒÆ¶¯µ½ÏÂÒ»¸öÍ¨Öª
+            // ç§»åŠ¨åˆ°ä¸‹ä¸€ä¸ªé€šçŸ¥
             if (notifyInfo->NextEntryOffset == 0) {
                 break;
             }
@@ -323,7 +323,7 @@ private:
         if (m_dwBuildNumber >= 22000) {
             m_versionName = L"Windows 11";
         }
-        else if (m_dwBuildNumber >= 10240) { // Windows 10 ÆğÊ¼°æ±¾
+        else if (m_dwBuildNumber >= 10240) { // Windows 10 èµ·å§‹ç‰ˆæœ¬
             m_versionName = L"Windows 10";
         }
         else {
@@ -353,10 +353,10 @@ public:
     }
 
     void PrintVersionInfo() const {
-        std::wcout << L"ÏµÍ³°æ±¾: " << m_versionName << std::endl;
-        std::wcout << L"¹¹½¨°æ±¾: " << m_dwBuildNumber << std::endl;
-        std::wcout << L"Ö÷°æ±¾: " << m_dwMajorVersion << std::endl;
-        std::wcout << L"´Î°æ±¾: " << m_dwMinorVersion << std::endl;
+        std::wcout << L"ç³»ç»Ÿç‰ˆæœ¬: " << m_versionName << std::endl;
+        std::wcout << L"æ„å»ºç‰ˆæœ¬: " << m_dwBuildNumber << std::endl;
+        std::wcout << L"ä¸»ç‰ˆæœ¬: " << m_dwMajorVersion << std::endl;
+        std::wcout << L"æ¬¡ç‰ˆæœ¬: " << m_dwMinorVersion << std::endl;
     }
 };
 
