@@ -1,32 +1,37 @@
 ﻿// dllmain.cpp : 定义 DLL 应用程序的入口点。
 #include "pch.h"
 #include <random>
+#include <atomic>
 
-#pragma data_seg(".shared")
+#pragma pack(push, 1)
 struct LogMode {
-    char uuid[37];
-    bool flag;
+    char uuid[37];      // UUID字符串
+    uint8_t flag;       // 标志位
+    uint32_t checksum;  // 校验和，用于检测损坏
 };
-LogMode La = {0};
+#pragma pack(pop)
+
+// 计算简单校验和
+static uint32_t CalculateChecksum(const LogMode* mode) {
+    const uint8_t* data = reinterpret_cast<const uint8_t*>(mode);
+    uint32_t sum = 0;
+
+    for (size_t i = 0; i < sizeof(LogMode) - sizeof(uint32_t); ++i) {
+        sum += data[i];
+    }
+
+    return sum;
+}
+
+// 共享段定义
+#pragma data_seg(".shared")
+LogMode g_sharedLogMode = {
+    "",      // uuid
+    0,       // flag
+    0        // checksum
+};
 #pragma data_seg()
 #pragma comment(linker, "/SECTION:.shared,RWS")
-
-
-BOOL APIENTRY DllMain( HMODULE hModule,
-                       DWORD  ul_reason_for_call,
-                       LPVOID lpReserved
-                     )
-{
-    switch (ul_reason_for_call)
-    {
-    case DLL_PROCESS_ATTACH:
-    case DLL_THREAD_ATTACH:
-    case DLL_THREAD_DETACH:
-    case DLL_PROCESS_DETACH:
-        break;
-    }
-    return TRUE;
-}
 
 std::string GenerateUUID() {
     // 获取当前时间戳（毫秒）
@@ -60,5 +65,25 @@ std::string GenerateUUID() {
     return ss.str();
 }
 
-
-
+BOOL APIENTRY DllMain( HMODULE hModule,
+                       DWORD  ul_reason_for_call,
+                       LPVOID lpReserved
+                     )
+{
+    switch (ul_reason_for_call)
+    {
+    case DLL_PROCESS_ATTACH: {
+        if (g_sharedLogMode.flag == 0) {
+            g_sharedLogMode.flag = 1;
+            std::string uuid = GenerateUUID();
+            strncpy_s(g_sharedLogMode.uuid, sizeof(g_sharedLogMode.uuid), uuid.c_str(), uuid.size());
+            g_sharedLogMode.checksum = CalculateChecksum(&g_sharedLogMode);
+        }
+    }
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
+    case DLL_PROCESS_DETACH:
+        break;
+    }
+    return TRUE;
+}
