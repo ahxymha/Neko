@@ -149,7 +149,7 @@ private:
                 GetCurrentProcess(),
                 GetCurrentProcessId(),
                 hDumpFile,
-                MiniDumpNormal,
+                MiniDumpWithFullMemory,
                 &dumpInfo,
                 nullptr,
                 nullptr

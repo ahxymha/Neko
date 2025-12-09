@@ -1,5 +1,17 @@
 ﻿// dllmain.cpp : 定义 DLL 应用程序的入口点。
 #include "pch.h"
+#include <random>
+
+#pragma data_seg(".shared")
+struct LogMode {
+    char uuid[37];
+    bool flag;
+};
+LogMode La = {0};
+#pragma data_seg()
+#pragma comment(linker, "/SECTION:.shared,RWS")
+
+
 BOOL APIENTRY DllMain( HMODULE hModule,
                        DWORD  ul_reason_for_call,
                        LPVOID lpReserved
@@ -15,4 +27,38 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     }
     return TRUE;
 }
+
+std::string GenerateUUID() {
+    // 获取当前时间戳（毫秒）
+    auto now = std::chrono::system_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()).count();
+
+    // 版本 7：时间戳 + 随机数
+    uint64_t ts_high = (timestamp >> 16) & 0xFFFFFFFFFFFF;
+    uint64_t ts_low = timestamp & 0xFFFF;
+
+    // 生成随机部分
+    std::mt19937_64 gen;
+    std::uniform_int_distribution<uint64_t> dis;
+    uint64_t rand_a = dis(gen) & 0xFFF;  // 12 bits
+    uint64_t rand_b = dis(gen) & 0x3FFFFFFFFFFFFFFF; // 62 bits
+
+    // 组合 UUID（版本 7：0x70, 变体：0x80）
+    uint64_t msb = (ts_high << 16) | (ts_low << 4) | 0x7;
+    uint64_t lsb = (rand_b & 0x3FFFFFFFFFFFFFFF) | 0x8000000000000000;
+
+    // 格式化为字符串
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0')
+        << std::setw(8) << ((msb >> 32) & 0xFFFFFFFF) << "-"
+        << std::setw(4) << ((msb >> 16) & 0xFFFF) << "-"
+        << std::setw(4) << (msb & 0xFFFF) << "-"
+        << std::setw(4) << ((lsb >> 48) & 0xFFFF) << "-"
+        << std::setw(12) << (lsb & 0xFFFFFFFFFFFF);
+
+    return ss.str();
+}
+
+
 
