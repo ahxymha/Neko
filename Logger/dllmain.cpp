@@ -2,31 +2,49 @@
 #include "pch.h"
 #include <random>
 #include <atomic>
+#include <codecvt>
+#ifndef INIT_ONCE_STATIC_INIT
+#define INIT_ONCE_STATIC_INIT {0}
+#endif // !INIT_ONCE_STATIC_INIT
+#include <sddl.h>
+
 
 #pragma pack(push, 1)
 struct LogMode {
-    char uuid[37];      // UUID字符串
-    uint8_t flag;       // 标志位
-    uint32_t checksum;  // 校验和，用于检测损坏
+    char uuid_boundary[37];         // 边界描述符UUID字符串
+    char uuid_namespace[37];        // 命名空间UUID字符串
+    char uuid_pipe[37];             // 命名管道UUID字符串
+    uint8_t flag;                   // 标志位
+    uint64_t checksum;              // 校验和，用于检测损坏
 };
 #pragma pack(pop)
 
 // 计算简单校验和
-static uint32_t CalculateChecksum(const LogMode* mode) {
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(mode);
-    uint32_t sum = 0;
+static uint64_t CalculateChecksum(const struct LogMode* data) {
+    struct LogMode temp = *data;
+    temp.checksum = 0;
 
-    for (size_t i = 0; i < sizeof(LogMode) - sizeof(uint32_t); ++i) {
-        sum += data[i];
+    const uint8_t* bytes = (const uint8_t*)&temp;
+    size_t size = sizeof(struct LogMode);
+
+    uint32_t sum1 = 0;
+    uint32_t sum2 = 0;
+
+    for (size_t i = 0; i < size; i++) {
+        sum1 = (sum1 + bytes[i]) & 0xFFFFFFFF;
+        sum2 = (sum2 + sum1) & 0xFFFFFFFF;
     }
 
-    return sum;
+    // 合并两个32位校验和
+    return ((uint64_t)sum2 << 32) | sum1;
 }
 
 // 共享段定义
 #pragma data_seg(".shared")
 LogMode g_sharedLogMode = {
-    "",      // uuid
+    "",      // uuid_boundary
+    "",      // uuid_namespace
+    "",      // uuid_pipe
     0,       // flag
     0        // checksum
 };
@@ -65,6 +83,40 @@ std::string GenerateUUID() {
     return ss.str();
 }
 
+static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext) {
+    g_sharedLogMode.flag = 1;
+    std::string uuid_b = GenerateUUID();
+    strncpy_s(g_sharedLogMode.uuid_boundary, sizeof(g_sharedLogMode.uuid_boundary), uuid_b.c_str(), uuid_b.size());
+    g_sharedLogMode.checksum = CalculateChecksum(&g_sharedLogMode);
+    HANDLE m_boundary = CreateBoundaryDescriptorA(uuid_b.c_str(), 0);
+    if (m_boundary == NULL) {
+        std::cerr << "CreateBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
+        return FALSE;
+    }
+    std::vector<std::string> ssids = { "S-1-5-18","S-1-5-32-544","S-1-5-32-545" };
+    for (auto& ssid : ssids) {
+        PSID sid;
+        if (!ConvertStringSidToSidA(ssid.c_str(), &sid)) {
+            std::cerr <<"ConvertingSID:" << ssid << "ConvertStringSidToSid ERROR:" << GetLastError() << std::endl;
+            return FALSE;
+        }
+        if (!AddSIDToBoundaryDescriptor(&m_boundary, sid)) {
+            std::cerr << "AddingSID:" << ssid << "AddSIDToBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
+            return FALSE;
+        }
+    }
+    std::string uuid_n = GenerateUUID();
+    strncpy_s(g_sharedLogMode.uuid_namespace, sizeof(g_sharedLogMode.uuid_namespace), uuid_n.c_str(), uuid_n.size());
+    if (!CreatePrivateNamespaceA(NULL, m_boundary, uuid_n.c_str())) {
+        std::cerr << "CreatePrivateNamespace ERROR:" << GetLastError() << std::endl;
+        return FALSE;
+    }
+    std::string uuid_m = GenerateUUID();
+    strncpy_s(g_sharedLogMode.uuid_pipe, sizeof(g_sharedLogMode.uuid_pipe), uuid_m.c_str(), uuid_m.size());
+
+    return TRUE;
+}
+
 BOOL APIENTRY DllMain( HMODULE hModule,
                        DWORD  ul_reason_for_call,
                        LPVOID lpReserved
@@ -74,10 +126,8 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     {
     case DLL_PROCESS_ATTACH: {
         if (g_sharedLogMode.flag == 0) {
-            g_sharedLogMode.flag = 1;
-            std::string uuid = GenerateUUID();
-            strncpy_s(g_sharedLogMode.uuid, sizeof(g_sharedLogMode.uuid), uuid.c_str(), uuid.size());
-            g_sharedLogMode.checksum = CalculateChecksum(&g_sharedLogMode);
+            static INIT_ONCE initOnce = INIT_ONCE_STATIC_INIT;
+            InitOnceExecuteOnce(&initOnce, init, NULL, NULL);
         }
     }
     case DLL_THREAD_ATTACH:
