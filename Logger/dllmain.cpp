@@ -83,13 +83,24 @@ std::string GenerateUUID() {
     return ss.str();
 }
 
+void LogWorker(std::wstring content) {
+
+}
+
+void PipeServer(HANDLE h_pipe, HANDLE h_stop) {
+    std::vector<HANDLE> v_threadPool;
+    while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT){
+
+    }
+}
+
 static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext) {
     g_sharedLogMode.flag = 1;
     std::string uuid_b = GenerateUUID();
     strncpy_s(g_sharedLogMode.uuid_boundary, sizeof(g_sharedLogMode.uuid_boundary), uuid_b.c_str(), uuid_b.size());
     g_sharedLogMode.checksum = CalculateChecksum(&g_sharedLogMode);
-    HANDLE m_boundary = CreateBoundaryDescriptorA(uuid_b.c_str(), 0);
-    if (m_boundary == NULL) {
+    HANDLE h_boundary = CreateBoundaryDescriptorA(uuid_b.c_str(), 0);
+    if (h_boundary == NULL) {
         std::cerr << "CreateBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
         return FALSE;
     }
@@ -100,20 +111,36 @@ static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext
             std::cerr <<"ConvertingSID:" << ssid << "ConvertStringSidToSid ERROR:" << GetLastError() << std::endl;
             return FALSE;
         }
-        if (!AddSIDToBoundaryDescriptor(&m_boundary, sid)) {
+        if (!AddSIDToBoundaryDescriptor(&h_boundary, sid)) {
             std::cerr << "AddingSID:" << ssid << "AddSIDToBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
             return FALSE;
         }
     }
     std::string uuid_n = GenerateUUID();
     strncpy_s(g_sharedLogMode.uuid_namespace, sizeof(g_sharedLogMode.uuid_namespace), uuid_n.c_str(), uuid_n.size());
-    if (!CreatePrivateNamespaceA(NULL, m_boundary, uuid_n.c_str())) {
+    if (!CreatePrivateNamespaceA(NULL, h_boundary, uuid_n.c_str())) {
         std::cerr << "CreatePrivateNamespace ERROR:" << GetLastError() << std::endl;
+        return FALSE;
+    }
+    HANDLE h_namespace;
+    h_namespace = OpenPrivateNamespaceA(h_boundary, uuid_n.c_str());
+    if (h_namespace == NULL) {
+        std::cerr << "OpenPrivateNamespace ERROR:" << GetLastError() << std::endl;
         return FALSE;
     }
     std::string uuid_m = GenerateUUID();
     strncpy_s(g_sharedLogMode.uuid_pipe, sizeof(g_sharedLogMode.uuid_pipe), uuid_m.c_str(), uuid_m.size());
-
+    SECURITY_ATTRIBUTES la;
+    la.nLength = sizeof(SECURITY_ATTRIBUTES);
+    la.bInheritHandle = FALSE;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
+        std::cerr << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
+        return FALSE;
+    }
+    if (!CreateNamedPipeA(("\\\\.\\pipe\\" + uuid_n + "\\" + uuid_m).c_str(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, MAX_INSTANCES, 65536, 65536, 0, &la)) {
+        std::cerr << "CreateNamedPipe ERROR:" << GetLastError() << std::endl;
+        return FALSE;
+    }
     return TRUE;
 }
 
