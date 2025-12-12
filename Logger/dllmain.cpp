@@ -83,14 +83,47 @@ std::string GenerateUUID() {
     return ss.str();
 }
 
+std::queue<unsigned short> q_threadAvaliable;
+
+struct LogThread {
+    unsigned short index;
+    std::thread worker;
+    HANDLE h_piep;
+    bool avalibale;
+};
+
 void LogWorker(std::wstring content) {
 
 }
 
-void PipeServer(HANDLE h_pipe, HANDLE h_stop) {
-    std::vector<HANDLE> v_threadPool;
+void PipeServer(HANDLE h_pipe, HANDLE h_stop, std::string m_pipe) {
+    SECURITY_ATTRIBUTES la;
+    la.nLength = sizeof(SECURITY_ATTRIBUTES);
+    la.bInheritHandle = FALSE;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
+        std::cerr << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
+        return;
+    }
+    std::vector<LogThread> v_threadPool;
+    v_threadPool.reserve(64);
+    for (int i = 0; i < 64; i++) {
+        HANDLE pipe;
+        pipe = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 64, 65536, 65536, 0, &la);
+        if (pipe==NULL&&pipe==INVALID_HANDLE_VALUE) {
+            std::cerr << "Index:" << i << "CreateNamedPipe ERROR:" << GetLastError() << std::endl;
+            return;
+        }
+        LogThread lt;
+        lt.index = i;
+        lt.avalibale = true;
+        lt.h_piep = std::move(pipe);
+        v_threadPool.push_back(std::move(lt));
+        q_threadAvaliable.push(i);
+    }
+    std::cout << "Thread Pool Size:" << v_threadPool.size() << std::endl;
     while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT){
-
+        BOOL conected = FALSE;
+        
     }
 }
 
@@ -130,17 +163,7 @@ static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext
     }
     std::string uuid_m = GenerateUUID();
     strncpy_s(g_sharedLogMode.uuid_pipe, sizeof(g_sharedLogMode.uuid_pipe), uuid_m.c_str(), uuid_m.size());
-    SECURITY_ATTRIBUTES la;
-    la.nLength = sizeof(SECURITY_ATTRIBUTES);
-    la.bInheritHandle = FALSE;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
-        std::cerr << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
-        return FALSE;
-    }
-    if (!CreateNamedPipeA(("\\\\.\\pipe\\" + uuid_n + "\\" + uuid_m).c_str(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, MAX_INSTANCES, 65536, 65536, 0, &la)) {
-        std::cerr << "CreateNamedPipe ERROR:" << GetLastError() << std::endl;
-        return FALSE;
-    }
+
     return TRUE;
 }
 
