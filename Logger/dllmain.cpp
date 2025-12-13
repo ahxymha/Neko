@@ -89,11 +89,27 @@ private:
     std::mutex mtx;
 public:
     void push(unsigned short &val){
-        
+        mtx.lock();
+        data.push(val);
+        mtx.unlock();
+    }
+    unsigned short get() {
+        mtx.lock();
+        unsigned short res = data.front();
+        data.pop();
+        mtx.unlock();
+        return res;
+    }
+    unsigned short peek() {
+        mtx.lock();
+        unsigned short res = data.front();
+        mtx.unlock();
+        return res;
     }
 };
 
-std::queue<unsigned short> q_threadAvaliable;
+tQueue q_threadAvaliable;
+Logger Log;
 
 struct LogThread {
     unsigned short index;
@@ -102,8 +118,56 @@ struct LogThread {
     bool avalibale;
 };
 
-void LogWorker(std::wstring content) {
-
+void LogWorker(HANDLE pipe) {
+    wchar_t* buf = new wchar_t[4097];
+    DWORD rn = 0;
+    if (!ReadFile(pipe, &buf, 65536, &rn, NULL)) {
+        Log.error()<< "ReadFile ERROR:" << GetLastError() << std::endl;
+        return;
+    }
+    if (rn == 0) {
+        Log.error() << "ReadFile ERROR:" << "Data Length is 0" << std::endl;
+        return;
+    }
+    buf[4096] = '\n';
+    Logger::LogLevel lev;
+    wchar_t sig;
+    switch (buf[0]) {
+        case 'D': {
+            lev = Logger::LogLevel::DEBUG;
+            sig = '%';
+            break;
+        }
+        case 'I': {
+            lev = Logger::LogLevel::INFO;
+            sig = '*';
+            break;
+        }
+        case 'W': {
+            lev = Logger::LogLevel::WARNING;
+            sig = '&';
+            break;
+        }
+        case 'E': {
+            lev = Logger::LogLevel::ERROR;
+            sig = '-';
+            break;
+        }
+        case 'P': {
+            lev = Logger::LogLevel::PANIC;
+            sig = '#';
+            break;
+        }
+        default: {
+            Log.error() << "Format ERROR,Print as ERROR" << std::endl;
+            sig = '-';
+            lev = Logger::LogLevel::ERROR;
+        }
+    }
+    buf[0] = ' ';
+    std::wstring content(buf);
+    Log.log(lev) << content;
+    delete[] buf;
 }
 
 void PipeServer(HANDLE h_pipe, HANDLE h_stop, std::string m_pipe) {
@@ -111,16 +175,16 @@ void PipeServer(HANDLE h_pipe, HANDLE h_stop, std::string m_pipe) {
     la.nLength = sizeof(SECURITY_ATTRIBUTES);
     la.bInheritHandle = FALSE;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
-        std::cerr << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
+        Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
         return;
     }
     std::vector<LogThread> v_threadPool;
     v_threadPool.reserve(64);
-    for (int i = 0; i < 64; i++) {
+    for (unsigned short i = 0; i < 64; i++) {
         HANDLE pipe;
         pipe = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 64, 65536, 65536, 0, &la);
         if (pipe==NULL&&pipe==INVALID_HANDLE_VALUE) {
-            std::cerr << "Index:" << i << "CreateNamedPipe ERROR:" << GetLastError() << std::endl;
+            Log.error() << "Index:" << i << "CreateNamedPipe ERROR:" << GetLastError() << std::endl;
             return;
         }
         LogThread lt;
@@ -130,11 +194,24 @@ void PipeServer(HANDLE h_pipe, HANDLE h_stop, std::string m_pipe) {
         v_threadPool.push_back(std::move(lt));
         q_threadAvaliable.push(i);
     }
-    std::cout << "Thread Pool Size:" << v_threadPool.size() << std::endl;
+    Log.info() << "Thread Pool Size:" << v_threadPool.size() << std::endl;
     while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT){
         BOOL conected = FALSE;
-        unsigned int index
-        
+        unsigned int index = q_threadAvaliable.get();
+        while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT) {
+            conected = ConnectNamedPipe(v_threadPool.at(index).h_piep, NULL);
+            if (!conected) {
+                if (GetLastError() != ERROR_PIPE_CONNECTED) {
+                    Log.error() << "Index:" << index << "ConnectNamedPipe ERROR:" << GetLastError() << std::endl;
+                    continue;
+                }
+            }
+            v_threadPool.at(index).avalibale = false;
+            std::thread worker(LogWorker, v_threadPool.at(index).h_piep);
+            v_threadPool.at(index).worker = std::move(worker);
+            v_threadPool.at(index).worker.detach();
+            break;
+        }
     }
 }
 
@@ -145,31 +222,31 @@ static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext
     g_sharedLogMode.checksum = CalculateChecksum(&g_sharedLogMode);
     HANDLE h_boundary = CreateBoundaryDescriptorA(uuid_b.c_str(), 0);
     if (h_boundary == NULL) {
-        std::cerr << "CreateBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
+        Log.error() << "CreateBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
         return FALSE;
     }
     std::vector<std::string> ssids = { "S-1-5-18","S-1-5-32-544","S-1-5-32-545" };
     for (auto& ssid : ssids) {
         PSID sid;
         if (!ConvertStringSidToSidA(ssid.c_str(), &sid)) {
-            std::cerr <<"ConvertingSID:" << ssid << "ConvertStringSidToSid ERROR:" << GetLastError() << std::endl;
+            Log.error() <<"ConvertingSID:" << ssid << "ConvertStringSidToSid ERROR:" << GetLastError() << std::endl;
             return FALSE;
         }
         if (!AddSIDToBoundaryDescriptor(&h_boundary, sid)) {
-            std::cerr << "AddingSID:" << ssid << "AddSIDToBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
+            Log.error() << "AddingSID:" << ssid << "AddSIDToBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
             return FALSE;
         }
     }
     std::string uuid_n = GenerateUUID();
     strncpy_s(g_sharedLogMode.uuid_namespace, sizeof(g_sharedLogMode.uuid_namespace), uuid_n.c_str(), uuid_n.size());
     if (!CreatePrivateNamespaceA(NULL, h_boundary, uuid_n.c_str())) {
-        std::cerr << "CreatePrivateNamespace ERROR:" << GetLastError() << std::endl;
+        Log.error() << "CreatePrivateNamespace ERROR:" << GetLastError() << std::endl;
         return FALSE;
     }
     HANDLE h_namespace;
     h_namespace = OpenPrivateNamespaceA(h_boundary, uuid_n.c_str());
     if (h_namespace == NULL) {
-        std::cerr << "OpenPrivateNamespace ERROR:" << GetLastError() << std::endl;
+        Log.error() << "OpenPrivateNamespace ERROR:" << GetLastError() << std::endl;
         return FALSE;
     }
     std::string uuid_m = GenerateUUID();
