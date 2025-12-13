@@ -83,6 +83,16 @@ std::string GenerateUUID() {
     return ss.str();
 }
 
+class tQueue{
+private:
+    std::queue<unsigned short> data;
+    std::mutex mtx;
+public:
+    void push(unsigned short &val){
+        
+    }
+};
+
 std::queue<unsigned short> q_threadAvaliable;
 
 struct LogThread {
@@ -123,6 +133,7 @@ void PipeServer(HANDLE h_pipe, HANDLE h_stop, std::string m_pipe) {
     std::cout << "Thread Pool Size:" << v_threadPool.size() << std::endl;
     while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT){
         BOOL conected = FALSE;
+        unsigned int index
         
     }
 }
