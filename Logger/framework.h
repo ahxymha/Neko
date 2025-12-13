@@ -4,3 +4,9 @@
 // Windows 头文件
 #include <Windows.h>
 #include <rpc.h>
+
+#ifdef LOGGER_EXPORTS
+#define LOG_API __declspec(dllexport) 
+#endif
+
+extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len);

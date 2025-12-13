@@ -83,9 +83,24 @@ private:
     private:
         std::stringstream _buffer;
         LogLevel _level;
-
+        
+        LogWriter(const LogWriter&) = delete;
+        LogWriter& operator=(const LogWriter&) = delete;
     public:
-        LogWriter(LogLevel level) : _level(level) {}
+        LogWriter(LogLevel level) {
+            _level = level;
+        }
+
+        LogWriter(LogWriter&& other) noexcept : _level(other._level) {
+            _buffer << other._buffer.rdbuf();
+            _level = other._level;
+        }
+
+        LogWriter& operator=(LogWriter&& other) noexcept {
+            _level = other._level;
+            _buffer << other._buffer.rdbuf();
+            return *this;
+        }
 
         ~LogWriter() {
             if (Logger::getInstance()._running) {
