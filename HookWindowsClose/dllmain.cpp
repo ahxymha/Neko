@@ -33,6 +33,7 @@ LRESULT CALLBACK CBTProc(int nCode, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(g_hook, nCode, wParam, lParam);
 }
 
+
 // 导出函数 - 安装钩子
 extern "C" __declspec(dllexport) BOOL InstallHook() {
     if (g_hook) {

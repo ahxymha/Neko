@@ -52,34 +52,16 @@ LogMode g_sharedLogMode = {
 #pragma comment(linker, "/SECTION:.shared,RWS")
 
 std::string GenerateUUID() {
-    // 获取当前时间戳（毫秒）
-    auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now.time_since_epoch()).count();
+    // 使用随机设备作为种子源
+    std::random_device rd;
+    // 使用Mersenne Twister算法
+    std::mt19937 gen(rd());
+    // 定义随机数范围：0 到 2^32-1 (32位无符号整数)
+    std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
 
-    // 版本 7：时间戳 + 随机数
-    uint64_t ts_high = (timestamp >> 16) & 0xFFFFFFFFFFFF;
-    uint64_t ts_low = timestamp & 0xFFFF;
-
-    // 生成随机部分
-    std::mt19937_64 gen;
-    std::uniform_int_distribution<uint64_t> dis;
-    uint64_t rand_a = dis(gen) & 0xFFF;  // 12 bits
-    uint64_t rand_b = dis(gen) & 0x3FFFFFFFFFFFFFFF; // 62 bits
-
-    // 组合 UUID（版本 7：0x70, 变体：0x80）
-    uint64_t msb = (ts_high << 16) | (ts_low << 4) | 0x7;
-    uint64_t lsb = (rand_b & 0x3FFFFFFFFFFFFFFF) | 0x8000000000000000;
-
-    // 格式化为字符串
+    // 生成随机数并转换为16进制字符串
     std::stringstream ss;
-    ss << std::hex << std::setfill('0')
-        << std::setw(8) << ((msb >> 32) & 0xFFFFFFFF) << "-"
-        << std::setw(4) << ((msb >> 16) & 0xFFFF) << "-"
-        << std::setw(4) << (msb & 0xFFFF) << "-"
-        << std::setw(4) << ((lsb >> 48) & 0xFFFF) << "-"
-        << std::setw(12) << (lsb & 0xFFFFFFFFFFFF);
-
+    ss << std::hex << std::setw(8) << std::setfill('0') << dis(gen);
     return ss.str();
 }
 
@@ -217,6 +199,33 @@ void PipeServer(HANDLE h_stop, std::string m_pipe) {
 
 static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext) {
     g_sharedLogMode.flag = 1;
+	Log.info() << "Logger DLL Injected Successfully." << std::endl;
+    HANDLE hToken = NULL;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+        Log.error() << "OpenProcessToken ERROR:" << GetLastError() << std::endl;
+        return FALSE;
+    }
+
+    LUID luid;
+    if (!LookupPrivilegeValue(NULL, SE_CREATE_SYMBOLIC_LINK_NAME, &luid)) {
+        Log.error() << "LookupPrivilegeValue ERROR:" << GetLastError() << std::endl;
+        CloseHandle(hToken);
+        return FALSE;
+    }
+
+    TOKEN_PRIVILEGES tp;
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Luid = luid;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    if (!AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) {
+        Log.error() << "AdjustTokenPrivileges ERROR:" << GetLastError() << std::endl;
+        CloseHandle(hToken);
+        return FALSE;
+    }
+
+    CloseHandle(hToken);
+    Log.info() << "Enabled SE_CREATE_SYMBOLIC_LINK_NAME" << std::endl;
     std::string uuid_b = GenerateUUID();
     strncpy_s(g_sharedLogMode.uuid_boundary, sizeof(g_sharedLogMode.uuid_boundary), uuid_b.c_str(), uuid_b.size());
     HANDLE h_boundary = CreateBoundaryDescriptorA(uuid_b.c_str(), 0);
@@ -224,6 +233,7 @@ static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext
         Log.error() << "CreateBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
         return FALSE;
     }
+	Log.info() << "BoundaryDescriptor UUID:" << uuid_b << std::endl;
     std::vector<std::string> ssids = { "S-1-5-18","S-1-5-32-544","S-1-5-32-545" };
     for (auto& ssid : ssids) {
         PSID sid;
@@ -235,13 +245,23 @@ static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext
             Log.error() << "AddingSID:" << ssid << "AddSIDToBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
             return FALSE;
         }
+		Log.info() << "AddingSID:" << ssid << " to BoundaryDescriptor SUCCESS." << std::endl;
     }
     std::string uuid_n = GenerateUUID();
     strncpy_s(g_sharedLogMode.uuid_namespace, sizeof(g_sharedLogMode.uuid_namespace), uuid_n.c_str(), uuid_n.size());
-    if (!CreatePrivateNamespaceA(NULL, h_boundary, uuid_n.c_str())) {
+	Log.info() << "PrivateNamespace UUID:" << uuid_n << std::endl;
+    SECURITY_ATTRIBUTES la;
+    la.nLength = sizeof(SECURITY_ATTRIBUTES);
+    la.bInheritHandle = FALSE;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
+        Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
+        return;
+    }
+    if (!CreatePrivateNamespaceA(&la, h_boundary, uuid_n.c_str())) {
         Log.error() << "CreatePrivateNamespace ERROR:" << GetLastError() << std::endl;
         return FALSE;
     }
+	Log.info() << "CreatePrivateNamespace SUCCESS." << std::endl;
     HANDLE h_namespace;
     h_namespace = OpenPrivateNamespaceA(h_boundary, uuid_n.c_str());
     if (h_namespace == NULL) {
