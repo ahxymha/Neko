@@ -134,6 +134,7 @@ private:
 
     // 私有构造函数
     Logger() : _running(false) {
+        SetConsoleCP(65001);
         _running = true;
         _logThread = std::thread(&Logger::logWorker, this);
     }
@@ -223,7 +224,6 @@ private:
             if (logEntry.level == LogLevel::PANIC) {
                 std::cerr << "PANIC level log detected. Generating core dump..." << std::endl;
                 generateDump();
-                TerminateProcess(GetCurrentProcess(), 1);
             }
         }
     }

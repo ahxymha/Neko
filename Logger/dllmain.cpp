@@ -100,7 +100,7 @@ struct LogThread {
 };
 
 void LogWorker(HANDLE pipe) {
-    char* buf = new char[655377];
+    char* buf = new char[65537];
     DWORD rn = 0;
     if (!ReadFile(pipe, buf, 65536, &rn, NULL)) {
         Log.error()<< "ReadFile ERROR:" << GetLastError() << std::endl;
@@ -110,7 +110,7 @@ void LogWorker(HANDLE pipe) {
         Log.error() << "ReadFile ERROR:" << "Data Length is 0" << std::endl;
         return;
     }
-    buf[4096] = '\n';
+    buf[rn] = '\0';
     Logger::LogLevel lev;
     char sig;
     switch (buf[0]) {
@@ -151,7 +151,12 @@ void LogWorker(HANDLE pipe) {
     delete[] buf;
 }
 
-void PipeServer(HANDLE h_d , std::string m_pipe) {
+HANDLE h_done;
+
+void PipeServer() {
+    std::stringstream s_pipe;
+    s_pipe << "\\\\.\\pipe\\" << g_sharedLogMode.uuid_pipe;
+    std::string m_pipe = std::move(s_pipe.str());
     SECURITY_ATTRIBUTES la;
     la.nLength = sizeof(SECURITY_ATTRIBUTES);
     la.bInheritHandle = FALSE;
@@ -176,7 +181,7 @@ void PipeServer(HANDLE h_d , std::string m_pipe) {
         q_threadAvaliable.push(i);
     }
     Log.info() << "Thread Pool Size:" << v_threadPool.size() << std::endl;
-    SetEvent(h_d);
+    SetEvent(h_done);
     while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT){
         BOOL conected = FALSE;
         unsigned int index = q_threadAvaliable.get();
@@ -207,11 +212,20 @@ static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext
     strncpy_s(g_sharedLogMode.uuid_pipe, sizeof(g_sharedLogMode.uuid_pipe), uuid_m.c_str(), uuid_m.size());
 
     h_stop = CreateEventA(NULL, TRUE, FALSE, NULL);
-    HANDLE h_done = CreateEventA(NULL, FALSE, FALSE, NULL);
+    h_done = CreateEventA(NULL, TRUE, FALSE, NULL);
+    if (h_stop == NULL || h_done == NULL) {
+        return FALSE;
+    }
 
-    std::thread mainThread(PipeServer, h_done, ("\\\\.\\pipe\\" + uuid_m));
-    mainThread.detach();
-    WaitForSingleObject(h_done, 0);
+    std::thread mainThread(PipeServer);
+    if(mainThread.joinable()){
+        mainThread.detach();
+    }
+    else {
+        return FALSE;
+    }
+    WaitForSingleObject(h_done, INFINITE);
+    LocalFree(h_done);
     g_sharedLogMode.flag = 2;
 
     g_sharedLogMode.checksum = CalculateChecksum(&g_sharedLogMode);
@@ -253,10 +267,11 @@ extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len) {
         }
     }
     DWORD processId = GetCurrentProcessId();
-    std::string logc(log);
-    logc = flag + "< PID:" + std::to_string(processId) + "> " + logc;
+    std::stringstream logc;
+
+    logc << flag << "< PID:" << std::to_string(processId) << "> " << log;
     DWORD ct;
-    if (!WriteFile(pipe, logc.c_str(), logc.size() * sizeof(char), &ct, NULL)) {
+    if (!WriteFile(pipe, logc.str().c_str(), logc.str().size() * sizeof(char), &ct, NULL)) {
         Log.error() << "WritePipe ERROR:" << GetLastError() << std::endl;
         return;
     }
