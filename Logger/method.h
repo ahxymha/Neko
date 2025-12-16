@@ -256,10 +256,6 @@ public:
             // 输出剩余的日志
             Log logEntry;
             while (_logQueue.poll(logEntry)) {
-                struct tm timeinfo;
-                localtime_s(&timeinfo, &logEntry.time);
-                char timeStr[64];
-                strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
 
                 std::string levelStr;
                 switch (logEntry.level) {
@@ -270,7 +266,7 @@ public:
                 case LogLevel::PANIC: levelStr = "PANIC"; break;
                 }
 
-                std::cout << timeStr << " [" << levelStr << "] " << logEntry.content << std::endl;
+                std::cout << "EXIT" << " [" << levelStr << "] " << logEntry.content << std::endl;
             }
         }
     }

@@ -11,8 +11,7 @@
 
 #pragma pack(push, 1)
 struct LogMode {
-    char uuid_boundary[37];         // 边界描述符UUID字符串
-    char uuid_namespace[37];        // 命名空间UUID字符串
+    DWORD start_pid;                // 启动程序的PID
     char uuid_pipe[37];             // 命名管道UUID字符串
     uint8_t flag;                   // 标志位
     uint64_t checksum;              // 校验和，用于检测损坏
@@ -42,9 +41,8 @@ static uint64_t CalculateChecksum(const struct LogMode* data) {
 // 共享段定义
 #pragma data_seg(".shared")
 LogMode g_sharedLogMode = {
-    "",      // uuid_boundary
+    0,
     "",      // uuid_namespace
-    "",      // uuid_pipe
     0,       // flag
     0        // checksum
 };
@@ -91,6 +89,7 @@ public:
 };
 
 tQueue q_threadAvaliable;
+HANDLE h_stop;
 Logger& Log = Logger::instance();
 
 struct LogThread {
@@ -101,9 +100,9 @@ struct LogThread {
 };
 
 void LogWorker(HANDLE pipe) {
-    char* buf = new char[4097];
+    char* buf = new char[655377];
     DWORD rn = 0;
-    if (!ReadFile(pipe, &buf, 65536, &rn, NULL)) {
+    if (!ReadFile(pipe, buf, 65536, &rn, NULL)) {
         Log.error()<< "ReadFile ERROR:" << GetLastError() << std::endl;
         return;
     }
@@ -152,7 +151,7 @@ void LogWorker(HANDLE pipe) {
     delete[] buf;
 }
 
-void PipeServer(HANDLE h_stop, std::string m_pipe) {
+void PipeServer(HANDLE h_d , std::string m_pipe) {
     SECURITY_ATTRIBUTES la;
     la.nLength = sizeof(SECURITY_ATTRIBUTES);
     la.bInheritHandle = FALSE;
@@ -164,7 +163,7 @@ void PipeServer(HANDLE h_stop, std::string m_pipe) {
     v_threadPool.reserve(64);
     for (unsigned short i = 0; i < 64; i++) {
         HANDLE pipe;
-        pipe = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 64, 65536, 65536, 0, &la);
+        pipe = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 64, 65536, 65536, 0, &la);
         if (pipe==NULL || pipe==INVALID_HANDLE_VALUE) {
             Log.error() << "Index:" << i << "CreateNamedPipe ERROR:" << GetLastError() << std::endl;
             return;
@@ -177,6 +176,7 @@ void PipeServer(HANDLE h_stop, std::string m_pipe) {
         q_threadAvaliable.push(i);
     }
     Log.info() << "Thread Pool Size:" << v_threadPool.size() << std::endl;
+    SetEvent(h_d);
     while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT){
         BOOL conected = FALSE;
         unsigned int index = q_threadAvaliable.get();
@@ -200,112 +200,31 @@ void PipeServer(HANDLE h_stop, std::string m_pipe) {
 static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext) {
     g_sharedLogMode.flag = 1;
 	Log.info() << "Logger DLL Injected Successfully." << std::endl;
-    HANDLE hToken = NULL;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-        Log.error() << "OpenProcessToken ERROR:" << GetLastError() << std::endl;
-        return FALSE;
-    }
 
-    LUID luid;
-    if (!LookupPrivilegeValue(NULL, SE_CREATE_SYMBOLIC_LINK_NAME, &luid)) {
-        Log.error() << "LookupPrivilegeValue ERROR:" << GetLastError() << std::endl;
-        CloseHandle(hToken);
-        return FALSE;
-    }
+    g_sharedLogMode.start_pid = GetCurrentProcessId();
 
-    TOKEN_PRIVILEGES tp;
-    tp.PrivilegeCount = 1;
-    tp.Privileges[0].Luid = luid;
-    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-
-    if (!AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) {
-        Log.error() << "AdjustTokenPrivileges ERROR:" << GetLastError() << std::endl;
-        CloseHandle(hToken);
-        return FALSE;
-    }
-
-    CloseHandle(hToken);
-    Log.info() << "Enabled SE_CREATE_SYMBOLIC_LINK_NAME" << std::endl;
-    std::string uuid_b = GenerateUUID();
-    strncpy_s(g_sharedLogMode.uuid_boundary, sizeof(g_sharedLogMode.uuid_boundary), uuid_b.c_str(), uuid_b.size());
-    HANDLE h_boundary = CreateBoundaryDescriptorA(uuid_b.c_str(), 0);
-    if (h_boundary == NULL) {
-        Log.error() << "CreateBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
-        return FALSE;
-    }
-	Log.info() << "BoundaryDescriptor UUID:" << uuid_b << std::endl;
-    std::vector<std::string> ssids = { "S-1-5-18","S-1-5-32-544","S-1-5-32-545" };
-    for (auto& ssid : ssids) {
-        PSID sid;
-        if (!ConvertStringSidToSidA(ssid.c_str(), &sid)) {
-            Log.error() <<"ConvertingSID:" << ssid << "ConvertStringSidToSid ERROR:" << GetLastError() << std::endl;
-            return FALSE;
-        }
-        if (!AddSIDToBoundaryDescriptor(&h_boundary, sid)) {
-            Log.error() << "AddingSID:" << ssid << "AddSIDToBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
-            return FALSE;
-        }
-		Log.info() << "AddingSID:" << ssid << " to BoundaryDescriptor SUCCESS." << std::endl;
-    }
-    std::string uuid_n = GenerateUUID();
-    strncpy_s(g_sharedLogMode.uuid_namespace, sizeof(g_sharedLogMode.uuid_namespace), uuid_n.c_str(), uuid_n.size());
-	Log.info() << "PrivateNamespace UUID:" << uuid_n << std::endl;
-    SECURITY_ATTRIBUTES la;
-    la.nLength = sizeof(SECURITY_ATTRIBUTES);
-    la.bInheritHandle = FALSE;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
-        Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
-        return;
-    }
-    if (!CreatePrivateNamespaceA(&la, h_boundary, uuid_n.c_str())) {
-        Log.error() << "CreatePrivateNamespace ERROR:" << GetLastError() << std::endl;
-        return FALSE;
-    }
-	Log.info() << "CreatePrivateNamespace SUCCESS." << std::endl;
-    HANDLE h_namespace;
-    h_namespace = OpenPrivateNamespaceA(h_boundary, uuid_n.c_str());
-    if (h_namespace == NULL) {
-        Log.error() << "OpenPrivateNamespace ERROR:" << GetLastError() << std::endl;
-        return FALSE;
-    }
     std::string uuid_m = GenerateUUID();
     strncpy_s(g_sharedLogMode.uuid_pipe, sizeof(g_sharedLogMode.uuid_pipe), uuid_m.c_str(), uuid_m.size());
 
+    h_stop = CreateEventA(NULL, TRUE, FALSE, NULL);
+    HANDLE h_done = CreateEventA(NULL, FALSE, FALSE, NULL);
+
+    std::thread mainThread(PipeServer, h_done, ("\\\\.\\pipe\\" + uuid_m));
+    mainThread.detach();
+    WaitForSingleObject(h_done, 0);
+    g_sharedLogMode.flag = 2;
 
     g_sharedLogMode.checksum = CalculateChecksum(&g_sharedLogMode);
-    HANDLE e_stop = CreateEventA(NULL, TRUE, FALSE, (uuid_n + "\\StopLogger").c_str());
-    std::thread mainThread(PipeServer, e_stop, ("\\.\\pipe\\" + uuid_n + "\\" + uuid_m));
-    mainThread.detach();
     return TRUE;
 }
 
 extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len) {
-    HANDLE h_boundary = CreateBoundaryDescriptorA(g_sharedLogMode.uuid_boundary, 0);
-    if (h_boundary == NULL) {
-        Log.error() << "CreateBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
-        return;
-    }
-    std::vector<std::string> ssids = { "S-1-5-18","S-1-5-32-544","S-1-5-32-545" };
-    for (auto& ssid : ssids) {
-        PSID sid;
-        if (!ConvertStringSidToSidA(ssid.c_str(), &sid)) {
-            Log.error() << "ConvertingSID:" << ssid << "ConvertStringSidToSid ERROR:" << GetLastError() << std::endl;
-            return;
-        }
-        if (!AddSIDToBoundaryDescriptor(&h_boundary, sid)) {
-            Log.error() << "AddingSID:" << ssid << "AddSIDToBoundaryDescriptor ERROR:" << GetLastError() << std::endl;
-            return;
-        }
-    }
-    HANDLE h_namespace;
-    h_namespace = OpenPrivateNamespaceA(h_boundary, g_sharedLogMode.uuid_namespace);
-    if (h_namespace == NULL) {
-        Log.error() << "OpenPrivateNamespace ERROR:" << GetLastError() << std::endl;
-        return;
+    while (g_sharedLogMode.flag != 2) {
+        Sleep(100);
     }
     std::stringstream pn;
-    pn << "\\.\\pipe\\" << g_sharedLogMode.uuid_namespace << "\\" << g_sharedLogMode.uuid_pipe;
-    HANDLE pipe = CreateFileA(pn.str().c_str(), GENERIC_READ | GENERIC_WRITE, NULL, NULL, NULL, NULL, NULL);
+    pn << "\\\\.\\pipe\\" << g_sharedLogMode.uuid_pipe;
+    HANDLE pipe = CreateFileA(pn.str().c_str(), GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     if (pipe == NULL) {
         Log.error() << "OpenPipe ERROR:" << GetLastError() << std::endl;
         return;
@@ -335,7 +254,7 @@ extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len) {
     }
     DWORD processId = GetCurrentProcessId();
     std::string logc(log);
-    logc = flag + "PID:" + std::to_string(processId) + logc;
+    logc = flag + "< PID:" + std::to_string(processId) + "> " + logc;
     DWORD ct;
     if (!WriteFile(pipe, logc.c_str(), logc.size() * sizeof(char), &ct, NULL)) {
         Log.error() << "WritePipe ERROR:" << GetLastError() << std::endl;
@@ -346,6 +265,10 @@ extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len) {
         return;
     }
     return;
+}
+
+extern"C" LOG_API void __stdcall Stop() {
+    SetEvent(h_stop);
 }
 
 BOOL APIENTRY DllMain( HMODULE hModule,
