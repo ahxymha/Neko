@@ -362,4 +362,5 @@ public:
 
 extern "C" {
     PLUGINS_API int Adminmain();
+    PLUGINS_API bool BSODHook();
 }

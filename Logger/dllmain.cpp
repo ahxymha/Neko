@@ -112,46 +112,37 @@ void LogWorker(HANDLE pipe) {
     }
     buf[rn] = '\0';
     Logger::LogLevel lev;
-    char sig;
     switch (buf[0]) {
         case 'D': {
             lev = Logger::LogLevel::DEBUG;
-            sig = '%';
             break;
         }
         case 'I': {
-            lev = Logger::LogLevel::INFO;
-            sig = '*';
+            lev = Logger::LogLevel::INFO;            
             break;
         }
         case 'W': {
-            lev = Logger::LogLevel::WARNING;
-            sig = '&';
+            lev = Logger::LogLevel::WARNING;           
             break;
         }
         case 'E': {
-            lev = Logger::LogLevel::ERROR;
-            sig = '-';
+            lev = Logger::LogLevel::ERROR;            
             break;
         }
         case 'P': {
             lev = Logger::LogLevel::PANIC;
-            sig = '#';
             break;
         }
         default: {
             Log.error() << "Format ERROR,Print as ERROR" << std::endl;
-            sig = '-';
             lev = Logger::LogLevel::ERROR;
         }
     }
     buf[0] = ' ';
     std::string content(buf);
-    Log.log(lev) << '[' << sig << ']' << content << std::endl;
+    Log.log(lev) << content << std::endl;
     delete[] buf;
 }
-
-HANDLE h_done;
 
 void PipeServer() {
     std::stringstream s_pipe;
@@ -166,9 +157,9 @@ void PipeServer() {
     }
     std::vector<LogThread> v_threadPool;
     v_threadPool.reserve(64);
-    for (unsigned short i = 0; i < 64; i++) {
+    for (unsigned short i = 0; i < 128; i++) {
         HANDLE pipe;
-        pipe = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 64, 65536, 65536, 0, &la);
+        pipe = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 128, 65536, 65536, 0, &la);
         if (pipe==NULL || pipe==INVALID_HANDLE_VALUE) {
             Log.error() << "Index:" << i << "CreateNamedPipe ERROR:" << GetLastError() << std::endl;
             return;
@@ -181,7 +172,18 @@ void PipeServer() {
         q_threadAvaliable.push(i);
     }
     Log.info() << "Thread Pool Size:" << v_threadPool.size() << std::endl;
-    SetEvent(h_done);
+    std::thread tmpThread([]() {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        if (g_sharedLogMode.flag == 1) {
+            g_sharedLogMode.flag = 2;
+        }
+        else {
+            g_sharedLogMode.flag = 3;
+            SetEvent(h_stop);
+        }
+        return;
+        });
+    tmpThread.detach();
     while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT){
         BOOL conected = FALSE;
         unsigned int index = q_threadAvaliable.get();
@@ -212,8 +214,7 @@ static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext
     strncpy_s(g_sharedLogMode.uuid_pipe, sizeof(g_sharedLogMode.uuid_pipe), uuid_m.c_str(), uuid_m.size());
 
     h_stop = CreateEventA(NULL, TRUE, FALSE, NULL);
-    h_done = CreateEventA(NULL, TRUE, FALSE, NULL);
-    if (h_stop == NULL || h_done == NULL) {
+    if (h_stop == NULL) {
         return FALSE;
     }
 
@@ -224,11 +225,6 @@ static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext
     else {
         return FALSE;
     }
-    WaitForSingleObject(h_done, INFINITE);
-    LocalFree(h_done);
-    g_sharedLogMode.flag = 2;
-
-    g_sharedLogMode.checksum = CalculateChecksum(&g_sharedLogMode);
     return TRUE;
 }
 
@@ -269,7 +265,7 @@ extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len) {
     DWORD processId = GetCurrentProcessId();
     std::stringstream logc;
 
-    logc << flag << "< PID:" << std::to_string(processId) << "> " << log;
+    logc << flag << "<PID:" << std::to_string(processId) << "> " << log;
     DWORD ct;
     if (!WriteFile(pipe, logc.str().c_str(), logc.str().size() * sizeof(char), &ct, NULL)) {
         Log.error() << "WritePipe ERROR:" << GetLastError() << std::endl;
@@ -283,6 +279,33 @@ extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len) {
 }
 
 extern"C" LOG_API void __stdcall Stop() {
+    DWORD processId = GetCurrentProcessId();
+    if (g_sharedLogMode.flag != 2) {
+        Log.error() << "Log system is not start up" << std::endl;
+    }
+    if (processId != g_sharedLogMode.start_pid) {
+        Log.error() << "Please use first startup process to stop this log system" << std::endl;
+        std::stringstream pn;
+        pn << "\\\\.\\pipe\\" << g_sharedLogMode.uuid_pipe;
+        HANDLE pipe = CreateFileA(pn.str().c_str(), GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (pipe == NULL) {
+            Log.error() << "OpenPipe ERROR:" << GetLastError() << std::endl;
+            return;
+        }
+        std::stringstream logc;
+
+        logc << "E" << "<SYSTEM> " << "Some process want to stop this system. PID:" << processId;
+        DWORD ct;
+        if (!WriteFile(pipe, logc.str().c_str(), logc.str().size() * sizeof(char), &ct, NULL)) {
+            Log.error() << "WritePipe ERROR:" << GetLastError() << std::endl;
+            return;
+        }
+        if (ct == 0) {
+            Log.error() << "WritePipe ERROR:" << GetLastError() << std::endl;
+            return;
+        }
+        return;
+    }
     SetEvent(h_stop);
 }
 
@@ -298,11 +321,13 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             static INIT_ONCE initOnce = INIT_ONCE_STATIC_INIT;
             InitOnceExecuteOnce(&initOnce, init, NULL, NULL);
         }
+        break;
     }
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
-    case DLL_PROCESS_DETACH:
+    case DLL_PROCESS_DETACH:{
         break;
+    }
     }
     return TRUE;
 }

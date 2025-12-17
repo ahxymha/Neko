@@ -33,6 +33,36 @@ LRESULT CALLBACK CBTProc(int nCode, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(g_hook, nCode, wParam, lParam);
 }
 
+LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode == HC_ACTION) {
+        KBDLLHOOKSTRUCT* pKeyInfo = (KBDLLHOOKSTRUCT*)lParam;
+
+        // 检查是否是F10键
+        if (pKeyInfo->vkCode == VK_F10) {
+            // 获取当前修饰键状态
+            bool ctrlPressed = GetAsyncKeyState(VK_CONTROL) & 0x8000;
+            bool altPressed = GetAsyncKeyState(VK_MENU) & 0x8000;
+            bool shiftPressed = GetAsyncKeyState(VK_SHIFT) & 0x8000;
+
+            // 检查是否是键按下事件
+            if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
+                // 检查是否同时按下了Ctrl+Alt+Shift
+                if (ctrlPressed && altPressed && shiftPressed) {
+                    
+                    HANDLE hPipe = CreateFile(L"\\\\.\\pipe\\BSODPipe", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+                    Sleep(100);
+                    CloseHandle(hPipe);
+                    // 返回1表示已处理此消息，阻止传递给其他程序
+                    return 1;
+                }
+            }
+        }
+    }
+
+    // 调用下一个钩子
+    return CallNextHookEx(g_hook, nCode, wParam, lParam);
+}
+
 
 // 导出函数 - 安装钩子
 extern "C" __declspec(dllexport) BOOL InstallHook() {
@@ -41,6 +71,11 @@ extern "C" __declspec(dllexport) BOOL InstallHook() {
     }
 
     g_hook = SetWindowsHookEx(WH_CBT, CBTProc, g_hInstance, 0);
+    return (g_hook != nullptr);
+}
+
+extern "C" __declspec(dllexport) BOOL InstallKeyHook(){
+    g_hook = SetWindowsHookEx(WH_KEYBOARD_LL, LowLevelKeyboardProc, g_hInstance, 0);
     return (g_hook != nullptr);
 }
 

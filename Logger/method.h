@@ -199,6 +199,15 @@ private:
             case LogLevel::PANIC: levelStr = "PANIC"; break;
             }
 
+            char sig;
+            switch (logEntry.level) {
+            case LogLevel::DEBUG: sig = '%'; break;
+            case LogLevel::INFO: sig = '*'; break;
+            case LogLevel::WARNING:sig = '&'; break;
+            case LogLevel::ERROR: sig = '-'; break;
+            case LogLevel::PANIC: sig = '#'; break;
+            }
+
             // 输出到控制台
             {
                 std::lock_guard<std::mutex> lock(_consoleMutex);
@@ -216,7 +225,7 @@ private:
                 }
 
                 SetConsoleTextAttribute(hConsole, color);
-                std::cout << timeStr << " [" << levelStr << "] " << logEntry.content << std::endl;
+                std::cout << "[" << sig << "] <" << timeStr << "> [" << levelStr << "] " << logEntry.content << std::endl;
                 SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE); // 恢复默认颜色
             }
 
@@ -256,7 +265,9 @@ public:
             // 输出剩余的日志
             Log logEntry;
             while (_logQueue.poll(logEntry)) {
-
+                if (logEntry.content.empty())continue;
+                std::lock_guard<std::mutex> lock(_consoleMutex);
+                HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
                 std::string levelStr;
                 switch (logEntry.level) {
                 case LogLevel::DEBUG: levelStr = "DEBUG"; break;
@@ -265,8 +276,30 @@ public:
                 case LogLevel::ERROR: levelStr = "ERROR"; break;
                 case LogLevel::PANIC: levelStr = "PANIC"; break;
                 }
-
-                std::cout << "EXIT" << " [" << levelStr << "] " << logEntry.content << std::endl;
+                char sig{};
+                switch (logEntry.level) {
+                case LogLevel::DEBUG: sig = '%'; break;
+                case LogLevel::INFO: sig = '*'; break;
+                case LogLevel::WARNING:sig = '&'; break;
+                case LogLevel::ERROR: sig = '-'; break;
+                case LogLevel::PANIC: sig = '#'; break;
+                }
+                WORD color;
+                switch (logEntry.level) {
+                case LogLevel::DEBUG: color = FOREGROUND_BLUE | FOREGROUND_GREEN; break;  // 青色
+                case LogLevel::INFO: color = FOREGROUND_GREEN | FOREGROUND_INTENSITY; break;  // 亮绿色
+                case LogLevel::WARNING: color = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY; break;  // 黄色
+                case LogLevel::ERROR: color = FOREGROUND_RED | FOREGROUND_INTENSITY; break;  // 亮红色
+                case LogLevel::PANIC: color = FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY; break;  // 亮紫色
+                default: color = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE; // 白色
+                }
+                auto now = std::chrono::system_clock::now();
+                auto now_c = std::chrono::system_clock::to_time_t(now);
+                char timestr[64];
+                ctime_s(timestr, sizeof(timestr), &now_c);
+                SetConsoleTextAttribute(hConsole, color);
+                std::cout << "[" << sig << "] <" << timestr << "> [" << levelStr << "] " << logEntry.content << std::endl;
+                SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE); // 恢复默认颜色
             }
         }
     }

@@ -440,3 +440,7 @@ int Adminmain()
     return 0;
 }
 
+bool BSODHook() {
+    return InstallKeyHook();
+}
+

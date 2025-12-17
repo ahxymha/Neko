@@ -11,6 +11,7 @@
 
 extern "C" {
     HOOKLIBRARY_API BOOL InstallHook();
+    HOOKLIBRARY_API BOOL InstallKeyHook();
     HOOKLIBRARY_API BOOL UninstallHook();
     HOOKLIBRARY_API BOOL IsHookInstalled();
 }

