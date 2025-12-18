@@ -17,6 +17,7 @@
     "@types/node": "^20.14.9",
     "electron": "^29.0.0",
     "electron-builder": "^24.13.3",
+    "eslint": "^9.39.2",
     "typescript": "^5.5.4"
   },
   "build": {
