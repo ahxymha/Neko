@@ -4,16 +4,6 @@
 
 namespace CfgMgr {
 	struct Calls {
-		struct Result {
-			enum status {
-				Done,
-				Error
-			}state;
-			union {
-				uint64_t code;
-				char *str;
-			};
-		}rseult;
 		enum CallType {
 			GetACustomConfig,
 			GetFullCustomConfig,
