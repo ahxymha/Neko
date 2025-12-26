@@ -1,7 +1,5 @@
 ﻿#include "pch.h"
 
-using namespace WinToastLib;
-
 // 全局变量
 HHOOK g_hook = nullptr;
 

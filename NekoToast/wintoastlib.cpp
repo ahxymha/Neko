@@ -1177,6 +1177,7 @@ HRESULT WinToast::setAudioFieldHelper(_In_ IXmlDocument* xml, _In_ std::wstring 
                             if (SUCCEEDED(hr)) {
                                 hr = Util::setNodeStringValue(L"true", editedNode.Get(), xml);
                             }
+                            break;
                         default:
                             break;
                     }

@@ -23,3 +23,6 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 }
 
 
+BOOL WINAPI NekoEntry()
+
+
