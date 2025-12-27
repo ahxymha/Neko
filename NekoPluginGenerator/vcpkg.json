@@ -1,0 +1,8 @@
+{
+  "name": "nekoglugingenerator",
+  "version": "1.0.0",
+  "dependencies": [
+    "openssl",
+    "boost-json"
+  ]
+}

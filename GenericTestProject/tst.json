@@ -1,0 +1,144 @@
+{
+  "Name": "🔧⚡ UltraComplexManifest - 测试解析器极限性能 ⚙️🔥 (v2025.12.31)",
+  "Plugins": [
+    {
+      "Name": "😈PluginWithUnicodeEmoji🎭",
+      "Entry": "/usr/local/lib/plugins/超级插件.so",
+      "Description": "这是一个包含换行符的描述：\n第一行\n第二行\n\t制表符\n特殊字符：`~!@#$%^&*()_+-=[]{}|;:'\",.<>/?\\",
+      "IsEnableOnStartup": true,
+      "ExtraField1": "解析器应忽略此字段",
+      "ExtraField2": { "nested": "object", "array": [1, 2, 3] }
+    },
+    {
+      "Name": "PluginWithVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongNameThatExceedsNormalLength",
+      "Entry": "C:\\Windows\\System32\\VeryLongPath\\AnotherFolder\\Another\\Plugin.dll",
+      "Description": "短描述",
+      "IsEnableOnStartup": false
+    },
+    {
+      "Name": "插件3",
+      "Entry": "entry3",
+      "Description": "",
+      "IsEnableOnStartup": true
+    },
+    {
+      "Name": "插件4",
+      "Entry": "entry4",
+      "Description": "正常描述",
+      "IsEnableOnStartup": false
+    },
+    {
+      "Name": "插件5",
+      "Entry": "entry5",
+      "Description": "描述5",
+      "IsEnableOnStartup": true
+    },
+    {
+      "Name": "插件6",
+      "Entry": "entry6",
+      "Description": "描述6",
+      "IsEnableOnStartup": false
+    },
+    {
+      "Name": "插件7",
+      "Entry": "entry7",
+      "Description": "描述7",
+      "IsEnableOnStartup": true
+    },
+    {
+      "Name": "插件8",
+      "Entry": "entry8",
+      "Description": "描述8",
+      "IsEnableOnStartup": false
+    },
+    {
+      "Name": "插件9",
+      "Entry": "entry9",
+      "Description": "描述9",
+      "IsEnableOnStartup": true
+    },
+    {
+      "Name": "插件10",
+      "Entry": "entry10",
+      "Description": "描述10",
+      "IsEnableOnStartup": false
+    },
+    {
+      "Name": "空入口插件",
+      "Entry": "",
+      "Description": "入口为空字符串",
+      "IsEnableOnStartup": true
+    },
+    {
+      "Name": "空描述插件",
+      "Entry": "entry_empty_desc",
+      "Description": "",
+      "IsEnableOnStartup": false
+    },
+    {
+      "Name": "全是特殊字符的插件",
+      "Entry": "!@#$%^&*()_+",
+      "Description": "!@#$%^&*()_+",
+      "IsEnableOnStartup": true
+    }
+  ],
+  "Provides": [
+    {
+      "Call": "提供调用1",
+      "Entry": "提供入口1",
+      "ExtraInfo": "解析器应忽略我"
+    },
+    {
+      "Call": "",
+      "Entry": "空调用名测试"
+    },
+    {
+      "Call": "CallWithVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongName",
+      "Entry": "EntryWithVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongName"
+    },
+    {
+      "Call": "提供调用4",
+      "Entry": "提供入口4"
+    },
+    {
+      "Call": "提供调用5",
+      "Entry": "提供入口5"
+    },
+    {
+      "Call": "提供调用6",
+      "Entry": "提供入口6"
+    },
+    {
+      "Call": "提供调用7",
+      "Entry": "提供入口7"
+    },
+    {
+      "Call": "提供调用8",
+      "Entry": "提供入口8"
+    },
+    {
+      "Call": "提供调用9",
+      "Entry": "提供入口9"
+    },
+    {
+      "Call": "提供调用10",
+      "Entry": "提供入口10"
+    },
+    {
+      "Call": "Unicode调用🎯",
+      "Entry": "Unicode入口🎲"
+    }
+  ],
+  "UnrelatedSection": {
+    "ThisShouldBeIgnored": true,
+    "NestedArray": [
+      "item1",
+      "item2",
+      { "deep": "object" }
+    ]
+  },
+  "AnotherUnrelatedField": [1, 2, 3, 4, 5],
+  "Version": "3.14.159",
+  "Author": "测试工程师",
+  "BuildDate": "2025-12-31T23:59:59Z"
+}
