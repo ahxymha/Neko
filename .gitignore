@@ -367,3 +367,6 @@ FodyWeavers.xsd
 /ElectronFrame/dist-electron
 /ElectronFrame/dist
 *.dll
+*.config
+*.manifest
+*.nkp
