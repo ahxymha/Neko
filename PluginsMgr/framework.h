@@ -43,6 +43,9 @@ namespace PluginsMgr{
 			uint32_t reserved = 0;
 			uint64_t plgLen;
 			uint64_t pvdLen;
+			uint8_t key[32];
+			uint8_t iv[16];
+			uint8_t hash[32];
 			std::string Name;
 			std::vector<_Plg> plgs;
 			std::vector<_Pvd> pvds;

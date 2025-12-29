@@ -210,6 +210,9 @@ namespace _nkp{
         uint32_t reserved = 0;
         uint64_t plgLen;
 		uint64_t pvdLen;
+        uint8_t key[32];
+        uint8_t iv[16];
+        uint8_t hash[32];
 		char* Name;
 	};
 
@@ -275,6 +278,20 @@ std::pair<_nkp::_Manifest, std::pair<std::vector<_nkp::_Plg>, std::vector<_nkp::
 std::vector<unsigned char> FileGenerator(std::pair<_nkp::_Manifest, std::pair<std::vector<_nkp::_Plg>, std::vector<_nkp::_Pvd>>> manifest,
                                          _nkp::_Header &header,
                                          std::string &p_PE) {
+    namespace fs = std::filesystem;
+    header.l_PE = fs::file_size(p_PE);
+    std::ifstream in_PE(p_PE, std::ios::binary);
+    std::vector<unsigned char> c_PE(header.l_PE);
+    in_PE.read(reinterpret_cast<char*>(c_PE.data()), header.l_PE);
+	auto pe_hash = std::vector<unsigned char>(SHA256_DIGEST_LENGTH);
+	SHA256(c_PE.data(), c_PE.size(), pe_hash.data());
+	std::copy(pe_hash.begin(), pe_hash.end(), manifest.first.hash);
+    auto pe_iv = AESEncryptor::generateIV();
+	auto pe_key = AESEncryptor::generateKey(32);
+	AESEncryptor pe_aes(pe_key, pe_iv);
+	auto encrypted_PE = pe_aes.encrypt(c_PE);
+	std::copy(pe_key.begin(), pe_key.end(), manifest.first.key);
+	std::copy(pe_iv.begin(), pe_iv.end(), manifest.first.iv);
     std::vector<unsigned char> fileheaderWithoutHeader;
     fileheaderWithoutHeader.reserve(sizeof(_nkp::_Manifest) - 8 + manifest.first.nameLen + manifest.first.plgLen + manifest.first.pvdLen);
     fileheaderWithoutHeader.insert(fileheaderWithoutHeader.end(),
@@ -308,12 +325,7 @@ std::vector<unsigned char> FileGenerator(std::pair<_nkp::_Manifest, std::pair<st
             reinterpret_cast<unsigned char*>(d_pvd.entryName),
             reinterpret_cast<unsigned char*>(d_pvd.entryName + d_pvd.entryLen));
     }
-    namespace fs = std::filesystem;
-    header.l_PE = fs::file_size(p_PE);
     header.l_manifest = fileheaderWithoutHeader.size();
-    std::ifstream in_PE(p_PE,std::ios::binary);
-    std::vector<unsigned char> c_PE(header.l_PE);
-    in_PE.read(reinterpret_cast<char*>(c_PE.data()), header.l_PE);
     fileheaderWithoutHeader.insert(fileheaderWithoutHeader.end(), c_PE.begin(), c_PE.end());
     std::vector<unsigned char> hash(SHA256_DIGEST_LENGTH); 
     SHA256(fileheaderWithoutHeader.data(), fileheaderWithoutHeader.size(), hash.data());
@@ -330,7 +342,6 @@ std::vector<unsigned char> FileGenerator(std::pair<_nkp::_Manifest, std::pair<st
     const unsigned char* headerPtr = reinterpret_cast<const unsigned char*>(&header);
     finalData.insert(finalData.end(), headerPtr, headerPtr + sizeof(_nkp::_Header));
     finalData.insert(finalData.end(), encryptData.begin(), encryptData.end());
-
     return finalData;
 }
 

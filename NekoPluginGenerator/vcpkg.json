@@ -2,7 +2,8 @@
   "name": "nekoglugingenerator",
   "version": "1.0.0",
   "dependencies": [
+    "boost-json",
     "openssl",
-    "boost-json"
+    "memorymodule"
   ]
 }
