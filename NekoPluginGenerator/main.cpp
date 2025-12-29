@@ -192,7 +192,6 @@ public:
     }
 };
 
-#pragma pack(1)
 namespace _nkp{
 	struct _Header {
 		const uint8_t flag[4] = { 'M','E','A','O' };
@@ -229,7 +228,6 @@ namespace _nkp{
 		char* callName, * entryName;
 	};
 }
-#pragma pack()
 
 std::pair<_nkp::_Manifest, std::pair<std::vector<_nkp::_Plg>, std::vector<_nkp::_Pvd>>> AnalysisManifest(const std::string &p_Manifest) {
 	std::ifstream io_manifest(p_Manifest.c_str());
@@ -313,10 +311,10 @@ std::vector<unsigned char> FileGenerator(std::pair<_nkp::_Manifest, std::pair<st
     namespace fs = std::filesystem;
     header.l_PE = fs::file_size(p_PE);
     header.l_manifest = fileheaderWithoutHeader.size();
-    std::ifstream in_PE(p_PE);
-    unsigned char* c_PE = new unsigned char[header.l_PE];
-    in_PE.read(reinterpret_cast<char*>(c_PE), header.l_PE);
-    fileheaderWithoutHeader.insert(fileheaderWithoutHeader.end(), c_PE, c_PE + header.l_PE);
+    std::ifstream in_PE(p_PE,std::ios::binary);
+    std::vector<unsigned char> c_PE(header.l_PE);
+    in_PE.read(reinterpret_cast<char*>(c_PE.data()), header.l_PE);
+    fileheaderWithoutHeader.insert(fileheaderWithoutHeader.end(), c_PE.begin(), c_PE.end());
     std::vector<unsigned char> hash(SHA256_DIGEST_LENGTH); 
     SHA256(fileheaderWithoutHeader.data(), fileheaderWithoutHeader.size(), hash.data());
     memcpy_s(header.hash, 32, hash.data(), hash.size());
@@ -334,7 +332,6 @@ std::vector<unsigned char> FileGenerator(std::pair<_nkp::_Manifest, std::pair<st
     finalData.insert(finalData.end(), encryptData.begin(), encryptData.end());
 
     return finalData;
-    return encryptData;
 }
 
 int main() {
@@ -342,7 +339,6 @@ int main() {
     header.mainVer = 1;
     header.patchVer = 0;
     header.BuildVer = 0;
-    system("pwd");
     std::ofstream nkp("out.nkp", std::ios::out | std::ios::binary);
     std::string PE_p = "plugin.dll";
     std::string Manifest_p = ".manifest";

@@ -5,12 +5,52 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include <filesystem>
+#include <utility>
 
 namespace PluginsMgr{
-	constexpr uint16_t itemNumOfPlgManifest = 2;
-	using PlgManifest = std::vector<std::pair<std::string, std::string>>;
-	constexpr char ManifestItemName[itemNumOfPlgManifest][6] = { "Name","Entry" };
-	typedef char* (*PGetManifest)();
+	namespace _nkp {
+		struct _Header {
+			_Header() = default;
+			uint8_t flag[4];
+			uint8_t nkPVer;
+			uint8_t key[32];
+			uint8_t iv[16];
+			uint8_t hash[32];
+			uint8_t mainVer, patchVer, BuildVer;
+			uint32_t l_manifest, l_PE;
+		};
+
+		struct _Plg {
+			uint32_t nameLen;
+			uint32_t entryLen;
+			uint32_t descriptionLen;
+			uint8_t isEnableOnStartup;
+			uint8_t reserved[3] = {};
+			std::string name, entry, description;
+		};
+
+		struct _Pvd {
+			uint32_t callLen;
+			uint32_t entryLen;
+			std::string callName, entryName;
+		};
+
+		struct _Manifest {
+			uint32_t nameLen;
+			uint32_t plgNum;
+			uint32_t pvdNum;
+			uint32_t reserved = 0;
+			uint64_t plgLen;
+			uint64_t pvdLen;
+			std::string Name;
+			std::vector<_Plg> plgs;
+			std::vector<_Pvd> pvds;
+		};
+
+	}
+	using PluginContent = std::pair<_nkp::_Header, std::pair<_nkp::_Header,std::vector<unsigned char>>>;
+	PluginContent AnalysisPlugin(std::filesystem::path nkpPath);
 }
 
 namespace NekoPlugin {
