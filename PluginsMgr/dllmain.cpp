@@ -202,7 +202,7 @@ pm::PluginContent pm::AnalysisPlugin(std::filesystem::path nkpPath) {
     pm::_nkp::_Header nkpHeader = {};
     std::copy(nkpFile.begin(), nkpFile.begin() + sizeof(pm::_nkp::_Header), reinterpret_cast<unsigned char*>(&nkpHeader));
     nkpFile.erase(nkpFile.begin(), nkpFile.begin() + sizeof(pm::_nkp::_Header));
-    std::pair<_nkp::_Header, std::pair<_nkp::_Header, std::vector<unsigned char>>> res;
+    PluginContent res;
     if (nkpHeader.flag[0] != 'M' || nkpHeader.flag[1] != 'E' || nkpHeader.flag[2] != 'A' || nkpHeader.flag[3] != 'O') {
         res.first = std::move(nkpHeader);
         return res;
@@ -211,11 +211,71 @@ pm::PluginContent pm::AnalysisPlugin(std::filesystem::path nkpPath) {
         res.first = std::move(nkpHeader);
         return res;
     }
+    res.first = std::move(nkpHeader);
     std::vector<unsigned char> iv, key;
     iv.insert(iv.begin(), nkpHeader.iv, nkpHeader.iv + 16);
     key.insert(key.begin(), nkpHeader.key, nkpHeader.key + 32);
     AESEncryptor decryptor(key, iv);
     auto decryptedData = decryptor.decrypt(nkpFile);
+    nkpFile.clear();
+    std::vector<unsigned char> hash(SHA256_DIGEST_LENGTH);
+    SHA256(decryptedData.data(), decryptedData.size(), hash.data());
+    std::vector<unsigned char> shash;
+    shash.insert(shash.begin(), nkpHeader.hash, nkpHeader.hash + SHA256_DIGEST_LENGTH);
+    if (shash != hash) {
+        res.first = std::move(nkpHeader);
+        return res;
+    }
+    pm::_nkp::_Manifest manifest;
+    std::copy(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Manifest::ManifestData), reinterpret_cast<unsigned char*>(&manifest.manifestPODdata));
+    decryptedData.erase(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Manifest::ManifestData));
+    manifest.Name.reserve(manifest.manifestPODdata.nameLen + 1);
+    std::copy(decryptedData.begin(), decryptedData.begin() + manifest.manifestPODdata.nameLen, reinterpret_cast<unsigned char*>(manifest.Name.data()));
+    decryptedData.erase(decryptedData.begin(), decryptedData.begin() + manifest.manifestPODdata.nameLen);
+    for (uint32_t i = 0; i < manifest.manifestPODdata.plgNum; i++) {
+        pm::_nkp::_Plg Plg;
+        std::copy(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Plg::PlgData), reinterpret_cast<unsigned char*>(&Plg.plgPODdata));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Plg::PlgData));
+        Plg.name.reserve(Plg.plgPODdata.nameLen + 1);
+        Plg.entry.reserve(Plg.plgPODdata.entryLen + 1);
+        Plg.description.reserve(Plg.plgPODdata.descriptionLen + 1);
+        std::copy(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.nameLen, reinterpret_cast<unsigned char*>(Plg.name.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.nameLen);
+        std::copy(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.entryLen, reinterpret_cast<unsigned char*>(Plg.entry.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.entryLen);
+        std::copy(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.descriptionLen, reinterpret_cast<unsigned char*>(Plg.description.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.descriptionLen);
+        manifest.plgs.push_back(std::move(Plg));
+    }
+    for (uint32_t i = 0; i < manifest.manifestPODdata.pvdNum; i++) {
+        pm::_nkp::_Pvd pvd;
+        std::copy(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Pvd::PvdData), reinterpret_cast<unsigned char*>(&pvd.pvdPODdata));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Pvd::PvdData));
+        pvd.callName.reserve(pvd.pvdPODdata.callLen + 1);
+        pvd.entryName.reserve(pvd.pvdPODdata.entryLen + 1);
+        std::copy(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.callLen, reinterpret_cast<unsigned char*>(pvd.callName.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.callLen);
+        std::copy(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.entryLen, reinterpret_cast<unsigned char*>(pvd.entryName.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.entryLen);
+        manifest.pvds.push_back(std::move(pvd));
+    }
+    iv.clear();
+    key.clear();
+    iv.insert(iv.begin(), manifest.manifestPODdata.iv, manifest.manifestPODdata.iv + 16);
+    key.insert(key.begin(), manifest.manifestPODdata.key, manifest.manifestPODdata.key + 32);
+    AESEncryptor peDecryptor(key, iv);
+    auto PEData = peDecryptor.decrypt(decryptedData);
+    decryptedData.clear();
+    res.second.second = std::move(PEData);
+    hash.clear();
+    SHA256(PEData.data(), PEData.size(), hash.data());
+    shash.clear();
+    shash.insert(shash.begin(), manifest.manifestPODdata.hash, manifest.manifestPODdata.hash + SHA256_DIGEST_LENGTH);
+    if (hash != shash) {
+        return res;
+    }
+    res.second.first = std::move(manifest);
+    return res;
 }
 
 BOOL LoadPlugins(std::string &floader) {

@@ -326,7 +326,7 @@ std::vector<unsigned char> FileGenerator(std::pair<_nkp::_Manifest, std::pair<st
             reinterpret_cast<unsigned char*>(d_pvd.entryName + d_pvd.entryLen));
     }
     header.l_manifest = fileheaderWithoutHeader.size();
-    fileheaderWithoutHeader.insert(fileheaderWithoutHeader.end(), c_PE.begin(), c_PE.end());
+    fileheaderWithoutHeader.insert(fileheaderWithoutHeader.end(), encrypted_PE.begin(), encrypted_PE.end());
     std::vector<unsigned char> hash(SHA256_DIGEST_LENGTH); 
     SHA256(fileheaderWithoutHeader.data(), fileheaderWithoutHeader.size(), hash.data());
     memcpy_s(header.hash, 32, hash.data(), hash.size());

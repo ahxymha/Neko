@@ -22,37 +22,43 @@ namespace PluginsMgr{
 		};
 
 		struct _Plg {
-			uint32_t nameLen;
-			uint32_t entryLen;
-			uint32_t descriptionLen;
-			uint8_t isEnableOnStartup;
-			uint8_t reserved[3] = {};
+			struct PlgData{
+				uint32_t nameLen;
+				uint32_t entryLen;
+				uint32_t descriptionLen;
+				uint8_t isEnableOnStartup;
+				uint8_t reserved[3] = {};
+			}plgPODdata;
 			std::string name, entry, description;
 		};
 
 		struct _Pvd {
-			uint32_t callLen;
-			uint32_t entryLen;
+			struct PvdData {
+				uint32_t callLen;
+				uint32_t entryLen;
+			}pvdPODdata;
 			std::string callName, entryName;
 		};
 
 		struct _Manifest {
-			uint32_t nameLen;
-			uint32_t plgNum;
-			uint32_t pvdNum;
-			uint32_t reserved = 0;
-			uint64_t plgLen;
-			uint64_t pvdLen;
-			uint8_t key[32];
-			uint8_t iv[16];
-			uint8_t hash[32];
+			struct ManifestData {
+				uint32_t nameLen;
+				uint32_t plgNum;
+				uint32_t pvdNum;
+				uint32_t reserved = 0;
+				uint64_t plgLen;
+				uint64_t pvdLen;
+				uint8_t key[32];
+				uint8_t iv[16];
+				uint8_t hash[32];
+			}manifestPODdata;
 			std::string Name;
 			std::vector<_Plg> plgs;
 			std::vector<_Pvd> pvds;
 		};
 
 	}
-	using PluginContent = std::pair<_nkp::_Header, std::pair<_nkp::_Header,std::vector<unsigned char>>>;
+	using PluginContent = std::pair<_nkp::_Header, std::pair<_nkp::_Manifest,std::vector<unsigned char>>>;
 	PluginContent AnalysisPlugin(std::filesystem::path nkpPath);
 }
 

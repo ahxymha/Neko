@@ -1,93 +1,343 @@
-#include<iostream>
-#include<fstream>
+#include <filesystem>
+#include <fstream>
 #include <vector>
-#include<sstream>
-#include<any>
-#include <string>
-#include <boost/json/src.hpp>
 
-#define BOOST_ALL_NO_LIB
+#include <openssl/sha.h>
+#include <openssl/evp.h>
+#include <openssl/err.h>
+#include <openssl/rand.h>
 
-namespace _nkp {
-	struct _Header {
-		const uint8_t flag[4] = { 'M','E','A','O' };
-		const uint8_t nkPVer = 2;
-		uint8_t mainVer, patchVer, BuildVer;
-		uint32_t l_manifest, l_egConfig, l_PE;
-	};
 
-	struct _Manifest {
-		uint32_t nameLen;
-		uint32_t plgNum;
-		uint32_t pvdNum;
-		uint8_t reserved[4];
-		char* Name;
-	};
 
-	struct _Plg {
-		uint32_t nameLen;
-		uint32_t entryLen;
-		uint32_t descriptionLen;
-		uint8_t isEnableOnStartup;
-		uint8_t reserved[3];
-		char* name, * entry, * description;
-	};
+#pragma comment(lib,"libcrypto.lib")
+#pragma comment(lib,"libssl.lib")
 
-	struct _Pvd {
-		uint32_t callLen;
-		uint32_t entryLen;
-		char* callName, * entryName;
-	};
 
-	struct _egConfig {
-		uint32_t Id;
-		uint32_t cfgLen;
-		char* cfg;
-	};
+#include <utility>
+#include <intrin.h>
+
+namespace PluginsMgr {
+    namespace _nkp {
+        struct _Header {
+            _Header() = default;
+            uint8_t flag[4];
+            uint8_t nkPVer;
+            uint8_t key[32];
+            uint8_t iv[16];
+            uint8_t hash[32];
+            uint8_t mainVer, patchVer, BuildVer;
+            uint32_t l_manifest, l_PE;
+        };
+
+        struct _Plg {
+            struct PlgData {
+                uint32_t nameLen;
+                uint32_t entryLen;
+                uint32_t descriptionLen;
+                uint8_t isEnableOnStartup;
+                uint8_t reserved[3] = {};
+            }plgPODdata;
+            std::string name, entry, description;
+        };
+
+        struct _Pvd {
+            struct PvdData {
+                uint32_t callLen;
+                uint32_t entryLen;
+            }pvdPODdata;
+            std::string callName, entryName;
+        };
+
+        struct _Manifest {
+            struct ManifestData {
+                uint32_t nameLen;
+                uint32_t plgNum;
+                uint32_t pvdNum;
+                uint32_t reserved = 0;
+                uint64_t plgLen;
+                uint64_t pvdLen;
+                uint8_t key[32];
+                uint8_t iv[16];
+                uint8_t hash[32];
+            }manifestPODdata;
+            std::string Name;
+            std::vector<_Plg> plgs;
+            std::vector<_Pvd> pvds;
+        };
+
+    }
+    using PluginContent = std::pair<_nkp::_Header, std::pair<_nkp::_Manifest, std::vector<unsigned char>>>;
 }
 
-std::pair<_nkp::_Manifest, std::pair<std::vector<_nkp::_Plg>, std::vector<_nkp::_Pvd>>> AnalysisManifest(const std::string& p_Manifest) {
-	std::ifstream io_manifest(p_Manifest.c_str());
-	std::pair<_nkp::_Manifest, std::pair<std::vector<_nkp::_Plg>, std::vector<_nkp::_Pvd>>> res;
-	namespace json = boost::json;
-	std::stringstream ss;
-	ss << io_manifest.rdbuf();
-	auto jv = json::parse(ss.str().c_str());
-	res.first.nameLen = jv.at("Name").as_string().size() + 1;
-	res.first.Name = new char[res.first.nameLen];
-	strcpy_s(res.first.Name, res.first.nameLen, jv.at("Name").as_string().c_str());
-	auto& Plgs = jv.at("Plugins").as_array();
-	res.first.plgNum = Plgs.size();
-	for (auto& Plg : Plgs) {
-		_nkp::_Plg d_plg;
-		d_plg.nameLen = Plg.at("Name").as_string().size() + 1;
-		d_plg.name = new char[d_plg.nameLen];
-		strcpy_s(d_plg.name, d_plg.nameLen, Plg.at("Name").as_string().c_str());
-		d_plg.entryLen = Plg.at("Entry").as_string().size() + 1;
-		d_plg.entry = new char[d_plg.entryLen];
-		strcpy_s(d_plg.entry, d_plg.entryLen, Plg.at("Entry").as_string().c_str());
-		d_plg.descriptionLen = Plg.at("Description").as_string().size() + 1;
-		d_plg.description = new char[d_plg.descriptionLen];
-		strcpy_s(d_plg.description, d_plg.descriptionLen, Plg.at("Description").as_string().c_str());
-		d_plg.isEnableOnStartup = (Plg.at("IsEnableOnStartup").as_bool() ? 1 : 0);
-		res.second.first.push_back(std::move(d_plg));
-	}
-	auto& Pvds = jv.at("Provides").as_array();
-	res.first.pvdNum = Pvds.size();
-	for (auto& Pvd : Pvds) {
-		_nkp::_Pvd d_pvd;
-		d_pvd.callLen = Pvd.at("Call").as_string().size() + 1;
-		d_pvd.callName = new char[d_pvd.callLen];
-		strcpy_s(d_pvd.callName, d_pvd.callLen, Pvd.at("Call").as_string().c_str());
-		d_pvd.entryLen = Pvd.at("Entry").as_string().size() + 1;
-		d_pvd.entryName = new char[d_pvd.entryLen];
-		strcpy_s(d_pvd.entryName, d_pvd.entryLen, Pvd.at("Entry").as_string().c_str());
-		res.second.second.push_back(std::move(d_pvd));
-	}
-	return std::move(res);
+class AESEncryptor {
+private:
+    std::vector<unsigned char> key;      // AES密钥（16, 24或32字节）
+    std::vector<unsigned char> iv;       // 初始化向量（16字节）
+
+public:
+    // 构造函数
+    AESEncryptor(const std::vector<unsigned char>& key,
+        const std::vector<unsigned char>& iv = {})
+        : key(key), iv(iv) {
+
+        // 如果未提供IV，生成随机IV
+        if (this->iv.empty()) {
+            this->iv.resize(16);
+            RAND_bytes(this->iv.data(), 16);
+        }
+
+        validateKeySize();
+    }
+
+    // 验证密钥长度
+    void validateKeySize() {
+        if (key.size() != 16 && key.size() != 24 && key.size() != 32) {
+            throw std::runtime_error("AES key length must be 16(AES-128), 24(AES-192) or 32(AES-256) bytes");
+        }
+    }
+
+    // AES加密函数
+    std::vector<unsigned char> encrypt(const std::vector<unsigned char>& plaintext) {
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) {
+            throw std::runtime_error("Failed to create EVP context");
+        }
+
+        try {
+            // 根据密钥长度选择加密算法
+            const EVP_CIPHER* cipher = nullptr;
+            if (key.size() == 16) {
+                cipher = EVP_aes_128_cbc();
+            }
+            else if (key.size() == 24) {
+                cipher = EVP_aes_192_cbc();
+            }
+            else {
+                cipher = EVP_aes_256_cbc();
+            }
+
+            // 初始化加密操作
+            if (1 != EVP_EncryptInit_ex(ctx, cipher, nullptr,
+                key.data(), iv.data())) {
+                throw std::runtime_error("Encryption initialization failed");
+            }
+
+            // 计算输出缓冲区大小（明文长度 + 块大小）
+            std::vector<unsigned char> ciphertext(plaintext.size() + EVP_CIPHER_CTX_block_size(ctx));
+
+            int len = 0;
+            int ciphertext_len = 0;
+
+            // 处理数据
+            if (1 != EVP_EncryptUpdate(ctx, ciphertext.data(), &len,
+                plaintext.data(), plaintext.size())) {
+                throw std::runtime_error("Encryption update failed");
+            }
+            ciphertext_len = len;
+
+            // 完成加密
+            if (1 != EVP_EncryptFinal_ex(ctx, ciphertext.data() + len, &len)) {
+                throw std::runtime_error("Encryption finalization failed");
+            }
+            ciphertext_len += len;
+
+            // 调整密文大小为实际长度
+            ciphertext.resize(ciphertext_len);
+
+            EVP_CIPHER_CTX_free(ctx);
+            return ciphertext;
+
+        }
+        catch (...) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw;
+        }
+    }
+
+    // AES解密函数
+    std::vector<unsigned char> decrypt(const std::vector<unsigned char>& ciphertext) {
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) {
+            throw std::runtime_error("Failed to create EVP context");
+        }
+
+        try {
+            // 根据密钥长度选择解密算法
+            const EVP_CIPHER* cipher = nullptr;
+            if (key.size() == 16) {
+                cipher = EVP_aes_128_cbc();
+            }
+            else if (key.size() == 24) {
+                cipher = EVP_aes_192_cbc();
+            }
+            else {
+                cipher = EVP_aes_256_cbc();
+            }
+
+            // 初始化解密操作
+            if (1 != EVP_DecryptInit_ex(ctx, cipher, nullptr,
+                key.data(), iv.data())) {
+                throw std::runtime_error("Decryption initialization failed");
+            }
+
+            // 计算输出缓冲区大小
+            std::vector<unsigned char> plaintext(ciphertext.size() + EVP_CIPHER_CTX_block_size(ctx));
+
+            int len = 0;
+            int plaintext_len = 0;
+
+            // 处理数据
+            if (1 != EVP_DecryptUpdate(ctx, plaintext.data(), &len,
+                ciphertext.data(), ciphertext.size())) {
+                throw std::runtime_error("Decryption update failed");
+            }
+            plaintext_len = len;
+
+            // 完成解密
+            if (1 != EVP_DecryptFinal_ex(ctx, plaintext.data() + len, &len)) {
+                throw std::runtime_error("Decryption finalization failed");
+            }
+            plaintext_len += len;
+
+            // 调整明文大小为实际长度
+            plaintext.resize(plaintext_len);
+
+            EVP_CIPHER_CTX_free(ctx);
+            return plaintext;
+
+        }
+        catch (...) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw;
+        }
+    }
+
+    // 获取IV（用于传输或存储）
+    const std::vector<unsigned char>& getIV() const {
+        return iv;
+    }
+
+    // 设置IV和Key（用于解密时）
+    void setIVandKey(const std::vector<unsigned char>& new_iv, const std::vector<unsigned char>& new_key) {
+        if (new_iv.size() != 16) {
+            throw std::runtime_error("IV must be 16 bytes");
+        }
+        if (new_key.size() != 16 && new_key.size() != 24 && new_key.size() != 32) {
+            throw std::runtime_error("Key must be 16 or 24 or 32 bytes");
+        }
+        key = new_key;
+        iv = new_iv;
+    }
+
+    // 静态方法：生成随机密钥
+    static std::vector<unsigned char> generateKey(int key_size = 32) {
+        if (key_size != 16 && key_size != 24 && key_size != 32) {
+            throw std::runtime_error("Key length must be 16, 24 or 32 bytes");
+        }
+
+        std::vector<unsigned char> key(key_size);
+        RAND_bytes(key.data(), key_size);
+        return key;
+    }
+
+    // 静态方法：生成随机IV
+    static std::vector<unsigned char> generateIV() {
+        std::vector<unsigned char> iv(16);
+        RAND_bytes(iv.data(), 16);
+        return iv;
+    }
+};
+
+
+
+namespace pm = ::PluginsMgr;
+
+pm::PluginContent AnalysisPlugin(std::filesystem::path nkpPath) {
+    auto nkpSize = std::filesystem::file_size(nkpPath);
+    std::ifstream nkpIN(nkpPath, std::ios::binary);
+    std::vector<unsigned char> nkpFile(nkpSize);
+    nkpIN.read(reinterpret_cast<char*>(nkpFile.data()), nkpSize);
+    pm::_nkp::_Header nkpHeader = {};
+    std::copy(nkpFile.begin(), nkpFile.begin() + sizeof(pm::_nkp::_Header), reinterpret_cast<unsigned char*>(&nkpHeader));
+    nkpFile.erase(nkpFile.begin(), nkpFile.begin() + sizeof(pm::_nkp::_Header));
+    pm::PluginContent res;
+    if (nkpHeader.flag[0] != 'M' || nkpHeader.flag[1] != 'E' || nkpHeader.flag[2] != 'A' || nkpHeader.flag[3] != 'O') {
+        res.first = std::move(nkpHeader);
+        return res;
+    }
+    if (nkpHeader.nkPVer != 2) {
+        res.first = std::move(nkpHeader);
+        return res;
+    }
+    res.first = std::move(nkpHeader);
+    std::vector<unsigned char> iv, key;
+    iv.insert(iv.begin(), nkpHeader.iv, nkpHeader.iv + 16);
+    key.insert(key.begin(), nkpHeader.key, nkpHeader.key + 32);
+    AESEncryptor decryptor(key, iv);
+    auto decryptedData = decryptor.decrypt(nkpFile);
+    nkpFile.clear();
+    std::vector<unsigned char> hash(SHA256_DIGEST_LENGTH);
+    SHA256(decryptedData.data(), decryptedData.size(), hash.data());
+    std::vector<unsigned char> shash;
+    shash.insert(shash.begin(), nkpHeader.hash, nkpHeader.hash + SHA256_DIGEST_LENGTH);
+    if (shash != hash) {
+        res.first = std::move(nkpHeader);
+        return res;
+    }
+    pm::_nkp::_Manifest manifest;
+    std::copy(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Manifest::ManifestData), reinterpret_cast<unsigned char*>(&manifest.manifestPODdata));
+    decryptedData.erase(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Manifest::ManifestData));
+    manifest.Name.reserve(manifest.manifestPODdata.nameLen + 1);
+    std::copy(decryptedData.begin(), decryptedData.begin() + manifest.manifestPODdata.nameLen, reinterpret_cast<unsigned char*>(manifest.Name.data()));
+    decryptedData.erase(decryptedData.begin(), decryptedData.begin() + manifest.manifestPODdata.nameLen);
+    for (uint32_t i = 0; i < manifest.manifestPODdata.plgNum; i++) {
+        pm::_nkp::_Plg Plg;
+        std::copy(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Plg::PlgData), reinterpret_cast<unsigned char*>(&Plg.plgPODdata));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Plg::PlgData));
+        Plg.name.reserve(Plg.plgPODdata.nameLen + 1);
+        Plg.entry.reserve(Plg.plgPODdata.entryLen + 1);
+        Plg.description.reserve(Plg.plgPODdata.descriptionLen + 1);
+        std::copy(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.nameLen, reinterpret_cast<unsigned char*>(Plg.name.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.nameLen);
+        std::copy(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.entryLen, reinterpret_cast<unsigned char*>(Plg.entry.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.entryLen);
+        std::copy(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.descriptionLen, reinterpret_cast<unsigned char*>(Plg.description.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.descriptionLen);
+        manifest.plgs.push_back(std::move(Plg));
+    }
+    for (uint32_t i = 0; i < manifest.manifestPODdata.pvdNum; i++) {
+        pm::_nkp::_Pvd pvd;
+        std::copy(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Pvd::PvdData), reinterpret_cast<unsigned char*>(&pvd.pvdPODdata));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Pvd::PvdData));
+        pvd.callName.reserve(pvd.pvdPODdata.callLen + 1);
+        pvd.entryName.reserve(pvd.pvdPODdata.entryLen + 1);
+        std::copy(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.callLen, reinterpret_cast<unsigned char*>(pvd.callName.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.callLen);
+        std::copy(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.entryLen, reinterpret_cast<unsigned char*>(pvd.entryName.data()));
+        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.entryLen);
+        manifest.pvds.push_back(std::move(pvd));
+    }
+    iv.clear();
+    key.clear();
+    iv.insert(iv.begin(), manifest.manifestPODdata.iv, manifest.manifestPODdata.iv + 16);
+    key.insert(key.begin(), manifest.manifestPODdata.key, manifest.manifestPODdata.key + 32);
+    decryptor.setIVandKey(iv, key);
+    auto PEData = decryptor.decrypt(decryptedData);
+    decryptedData.clear();
+    res.second.second = std::move(PEData);
+    hash.clear();
+    SHA256(PEData.data(), PEData.size(), hash.data());
+    shash.clear();
+    shash.insert(shash.begin(), manifest.manifestPODdata.hash, manifest.manifestPODdata.hash + SHA256_DIGEST_LENGTH);
+    if (hash != shash) {
+        return res;
+    }
+    res.second.first = std::move(manifest);
+    return res;
 }
+
 
 int main() {
-	auto res = AnalysisManifest("tst.json");
-	__debugbreak();
+    auto res = AnalysisPlugin("tst.nkp");
+    __debugbreak();
 }
