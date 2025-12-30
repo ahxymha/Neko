@@ -369,7 +369,5 @@ FodyWeavers.xsd
 *.dll
 *.nkp
 *.manifest
-/NekoPluginGenerator/.config
-/NekoPluginGenerator/vcpkg_installed
-/PluginsMgr/vcpkg_installed
-/GenericTestProject/vcpkg_installed
+*/.config
+*/vcpkg_installed
