@@ -264,13 +264,13 @@ pm::PluginContent pm::AnalysisPlugin(std::filesystem::path nkpPath) {
     iv.insert(iv.begin(), manifest.manifestPODdata.iv, manifest.manifestPODdata.iv + 16);
     key.insert(key.begin(), manifest.manifestPODdata.key, manifest.manifestPODdata.key + 32);
     AESEncryptor peDecryptor(key, iv);
-    auto PEData = peDecryptor.decrypt(decryptedData);
+    auto PEData = decryptor.decrypt(decryptedData);
     decryptedData.clear();
+    std::vector<unsigned char> pe_hash(SHA256_DIGEST_LENGTH);
+    SHA256(PEData.data(), PEData.size(), pe_hash.data());
     res.second.second = std::move(PEData);
-    hash.clear();
-    SHA256(PEData.data(), PEData.size(), hash.data());
     shash.clear();
-    shash.insert(shash.begin(), manifest.manifestPODdata.hash, manifest.manifestPODdata.hash + SHA256_DIGEST_LENGTH);
+    shash.insert(shash.begin(), manifest.manifestPODdata.hash, manifest.manifestPODdata.hash + SHA256_DIGEST_LENGTH);    
     if (hash != shash) {
         return res;
     }

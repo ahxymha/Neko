@@ -324,12 +324,12 @@ pm::PluginContent AnalysisPlugin(std::filesystem::path nkpPath) {
     decryptor.setIVandKey(iv, key);
     auto PEData = decryptor.decrypt(decryptedData);
     decryptedData.clear();
+    std::vector<unsigned char> pe_hash(SHA256_DIGEST_LENGTH);
+    SHA256(PEData.data(), PEData.size(), pe_hash.data());
     res.second.second = std::move(PEData);
-    hash.clear();
-    SHA256(PEData.data(), PEData.size(), hash.data());
     shash.clear();
     shash.insert(shash.begin(), manifest.manifestPODdata.hash, manifest.manifestPODdata.hash + SHA256_DIGEST_LENGTH);
-    if (hash != shash) {
+    if (pe_hash != shash) {
         return res;
     }
     res.second.first = std::move(manifest);
