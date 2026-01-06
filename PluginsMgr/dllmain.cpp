@@ -287,3 +287,45 @@ BOOL LoadPlugins(std::string &floader) {
 		
 	}
 }
+
+HANDLE StringToHandle(const std::string& str) {
+    std::stringstream ss;
+    uintptr_t handleValue;
+
+    ss << std::hex << str;
+    ss >> handleValue;
+
+    if (ss.fail()) {
+        return INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE h = reinterpret_cast<HANDLE>(handleValue);
+    return h;
+}
+
+HANDLE GetHandleFromEnvironment(const char* varName) {
+    char buffer[256];
+    DWORD length = GetEnvironmentVariableA(varName, buffer, sizeof(buffer));
+
+    if (length == 0) {
+        return INVALID_HANDLE_VALUE;
+    }
+
+    if (length >= sizeof(buffer)) {
+        return INVALID_HANDLE_VALUE;
+    }
+
+    std::string str(buffer);
+    return StringToHandle(str);
+}
+
+HANDLE RunPluginWithoutSandbox(pm::_nkp::_Plg plg,HMEMORYMODULE memLib,pm::PluginLoader::plgHost argv,HANDLE h_stop) {
+    namespace pl = pm::PluginLoader;
+    auto plgEntry = (pl::PluginEntry)MemoryGetProcAddress(memLib, plg.name.c_str());
+    plgEntry(argv.MutexLocker, argv.UpdateFlag, argv.ContentLen, argv.Content, h_stop);
+
+}
+
+HANDLE RunPlugin(pm::PluginContent plg) {
+    //TODO: Put your Sandbox carete code here.
+}

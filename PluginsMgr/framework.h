@@ -58,6 +58,15 @@ namespace PluginsMgr{
 		};
 
 	}
+	namespace PluginLoader {
+		typedef BOOL(*PluginEntry)(HANDLE hostMutex, uint64_t &updateFlag, uint64_t &contentLen, uint8_t* content, HANDLE Stop);
+		struct plgHost{
+			HANDLE MutexLocker;
+			uint64_t UpdateFlag;
+			uint64_t ContentLen;
+			uint8_t* Content;
+		};
+	}
 	using PluginContent = std::pair<_nkp::_Header, std::pair<_nkp::_Manifest,std::vector<unsigned char>>>;
 	PluginContent AnalysisPlugin(std::filesystem::path nkpPath);
 }

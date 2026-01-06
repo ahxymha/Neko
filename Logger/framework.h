@@ -10,3 +10,4 @@
 #endif
 
 extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len);
+extern"C" LOG_API void __stdcall Stop();
