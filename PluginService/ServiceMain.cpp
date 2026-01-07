@@ -9,6 +9,8 @@ namespace pm = PluginsMgr;
 
 BOOL CreateSandboxEnv(BOOL isMain) {
 	HANDLE sandboxToken = nullptr;
+	HANDLE thisToken = GetCurrentProcessToken();
+
 	CreateRestrictedToken(GetCurrentProcessToken(), DISABLE_MAX_PRIVILEGE, 0, NULL, 0, NULL, 0, NULL, &sandboxToken);
 
 }

@@ -1,343 +1,290 @@
-#include <filesystem>
-#include <fstream>
+#include <windows.h>
+#include <sddl.h>
+#include <iostream>
 #include <vector>
 
-#include <openssl/sha.h>
-#include <openssl/evp.h>
-#include <openssl/err.h>
-#include <openssl/rand.h>
+#pragma comment(lib, "advapi32.lib")
 
-
-
-#pragma comment(lib,"libcrypto.lib")
-#pragma comment(lib,"libssl.lib")
-
-
-#include <utility>
-#include <intrin.h>
-
-namespace PluginsMgr {
-    namespace _nkp {
-        struct _Header {
-            _Header() = default;
-            uint8_t flag[4];
-            uint8_t nkPVer;
-            uint8_t key[32];
-            uint8_t iv[16];
-            uint8_t hash[32];
-            uint8_t mainVer, patchVer, BuildVer;
-            uint32_t l_manifest, l_PE;
-        };
-
-        struct _Plg {
-            struct PlgData {
-                uint32_t nameLen;
-                uint32_t entryLen;
-                uint32_t descriptionLen;
-                uint8_t isEnableOnStartup;
-                uint8_t reserved[3] = {};
-            }plgPODdata;
-            std::string name, entry, description;
-        };
-
-        struct _Pvd {
-            struct PvdData {
-                uint32_t callLen;
-                uint32_t entryLen;
-            }pvdPODdata;
-            std::string callName, entryName;
-        };
-
-        struct _Manifest {
-            struct ManifestData {
-                uint32_t nameLen;
-                uint32_t plgNum;
-                uint32_t pvdNum;
-                uint32_t reserved = 0;
-                uint64_t plgLen;
-                uint64_t pvdLen;
-                uint8_t key[32];
-                uint8_t iv[16];
-                uint8_t hash[32];
-            }manifestPODdata;
-            std::string Name;
-            std::vector<_Plg> plgs;
-            std::vector<_Pvd> pvds;
-        };
-
+// 获取完整性级别字符串
+std::wstring GetIntegrityLevelString(PSID pSid) {
+    if (!IsValidSid(pSid)) {
+        return L"Invalid SID";
     }
-    using PluginContent = std::pair<_nkp::_Header, std::pair<_nkp::_Manifest, std::vector<unsigned char>>>;
+
+    DWORD dwSubAuthorityCount = *GetSidSubAuthorityCount(pSid);
+    if (dwSubAuthorityCount >= 1) {
+        PDWORD pSubAuthority = GetSidSubAuthority(pSid, dwSubAuthorityCount - 1);
+
+        switch (*pSubAuthority) {
+        case SECURITY_MANDATORY_UNTRUSTED_RID:     return L"Untrusted (0)";
+        case SECURITY_MANDATORY_LOW_RID:          return L"Low (4096)";
+        case SECURITY_MANDATORY_MEDIUM_RID:       return L"Medium (8192)";
+        case SECURITY_MANDATORY_MEDIUM_PLUS_RID:  return L"Medium Plus (8448)";
+        case SECURITY_MANDATORY_HIGH_RID:         return L"High (12288)";
+        case SECURITY_MANDATORY_SYSTEM_RID:       return L"System (16384)";
+        case SECURITY_MANDATORY_PROTECTED_PROCESS_RID: return L"Protected Process (20480)";
+        default: {
+            wchar_t buffer[64];
+            swprintf_s(buffer, L"Unknown (%lu)", *pSubAuthority);
+            return buffer;
+        }
+        }
+    }
+    return L"Unknown";
 }
 
-class AESEncryptor {
-private:
-    std::vector<unsigned char> key;      // AES密钥（16, 24或32字节）
-    std::vector<unsigned char> iv;       // 初始化向量（16字节）
+// 获取当前令牌的完整性级别
+std::wstring GetCurrentIntegrityLevel(HANDLE hToken) {
+    DWORD dwLengthNeeded = 0;
+    GetTokenInformation(hToken, TokenIntegrityLevel, nullptr, 0, &dwLengthNeeded);
 
-public:
-    // 构造函数
-    AESEncryptor(const std::vector<unsigned char>& key,
-        const std::vector<unsigned char>& iv = {})
-        : key(key), iv(iv) {
-
-        // 如果未提供IV，生成随机IV
-        if (this->iv.empty()) {
-            this->iv.resize(16);
-            RAND_bytes(this->iv.data(), 16);
-        }
-
-        validateKeySize();
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        return L"无法获取";
     }
 
-    // 验证密钥长度
-    void validateKeySize() {
-        if (key.size() != 16 && key.size() != 24 && key.size() != 32) {
-            throw std::runtime_error("AES key length must be 16(AES-128), 24(AES-192) or 32(AES-256) bytes");
-        }
+    std::vector<BYTE> buffer(dwLengthNeeded);
+    PTOKEN_MANDATORY_LABEL pTML = (PTOKEN_MANDATORY_LABEL)buffer.data();
+
+    if (GetTokenInformation(hToken, TokenIntegrityLevel, pTML, dwLengthNeeded, &dwLengthNeeded)) {
+        return GetIntegrityLevelString(pTML->Label.Sid);
     }
 
-    // AES加密函数
-    std::vector<unsigned char> encrypt(const std::vector<unsigned char>& plaintext) {
-        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-        if (!ctx) {
-            throw std::runtime_error("Failed to create EVP context");
-        }
-
-        try {
-            // 根据密钥长度选择加密算法
-            const EVP_CIPHER* cipher = nullptr;
-            if (key.size() == 16) {
-                cipher = EVP_aes_128_cbc();
-            }
-            else if (key.size() == 24) {
-                cipher = EVP_aes_192_cbc();
-            }
-            else {
-                cipher = EVP_aes_256_cbc();
-            }
-
-            // 初始化加密操作
-            if (1 != EVP_EncryptInit_ex(ctx, cipher, nullptr,
-                key.data(), iv.data())) {
-                throw std::runtime_error("Encryption initialization failed");
-            }
-
-            // 计算输出缓冲区大小（明文长度 + 块大小）
-            std::vector<unsigned char> ciphertext(plaintext.size() + EVP_CIPHER_CTX_block_size(ctx));
-
-            int len = 0;
-            int ciphertext_len = 0;
-
-            // 处理数据
-            if (1 != EVP_EncryptUpdate(ctx, ciphertext.data(), &len,
-                plaintext.data(), plaintext.size())) {
-                throw std::runtime_error("Encryption update failed");
-            }
-            ciphertext_len = len;
-
-            // 完成加密
-            if (1 != EVP_EncryptFinal_ex(ctx, ciphertext.data() + len, &len)) {
-                throw std::runtime_error("Encryption finalization failed");
-            }
-            ciphertext_len += len;
-
-            // 调整密文大小为实际长度
-            ciphertext.resize(ciphertext_len);
-
-            EVP_CIPHER_CTX_free(ctx);
-            return ciphertext;
-
-        }
-        catch (...) {
-            EVP_CIPHER_CTX_free(ctx);
-            throw;
-        }
-    }
-
-    // AES解密函数
-    std::vector<unsigned char> decrypt(const std::vector<unsigned char>& ciphertext) {
-        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-        if (!ctx) {
-            throw std::runtime_error("Failed to create EVP context");
-        }
-
-        try {
-            // 根据密钥长度选择解密算法
-            const EVP_CIPHER* cipher = nullptr;
-            if (key.size() == 16) {
-                cipher = EVP_aes_128_cbc();
-            }
-            else if (key.size() == 24) {
-                cipher = EVP_aes_192_cbc();
-            }
-            else {
-                cipher = EVP_aes_256_cbc();
-            }
-
-            // 初始化解密操作
-            if (1 != EVP_DecryptInit_ex(ctx, cipher, nullptr,
-                key.data(), iv.data())) {
-                throw std::runtime_error("Decryption initialization failed");
-            }
-
-            // 计算输出缓冲区大小
-            std::vector<unsigned char> plaintext(ciphertext.size() + EVP_CIPHER_CTX_block_size(ctx));
-
-            int len = 0;
-            int plaintext_len = 0;
-
-            // 处理数据
-            if (1 != EVP_DecryptUpdate(ctx, plaintext.data(), &len,
-                ciphertext.data(), ciphertext.size())) {
-                throw std::runtime_error("Decryption update failed");
-            }
-            plaintext_len = len;
-
-            // 完成解密
-            if (1 != EVP_DecryptFinal_ex(ctx, plaintext.data() + len, &len)) {
-                throw std::runtime_error("Decryption finalization failed");
-            }
-            plaintext_len += len;
-
-            // 调整明文大小为实际长度
-            plaintext.resize(plaintext_len);
-
-            EVP_CIPHER_CTX_free(ctx);
-            return plaintext;
-
-        }
-        catch (...) {
-            EVP_CIPHER_CTX_free(ctx);
-            throw;
-        }
-    }
-
-    // 获取IV（用于传输或存储）
-    const std::vector<unsigned char>& getIV() const {
-        return iv;
-    }
-
-    // 设置IV和Key（用于解密时）
-    void setIVandKey(const std::vector<unsigned char>& new_iv, const std::vector<unsigned char>& new_key) {
-        if (new_iv.size() != 16) {
-            throw std::runtime_error("IV must be 16 bytes");
-        }
-        if (new_key.size() != 16 && new_key.size() != 24 && new_key.size() != 32) {
-            throw std::runtime_error("Key must be 16 or 24 or 32 bytes");
-        }
-        key = new_key;
-        iv = new_iv;
-    }
-
-    // 静态方法：生成随机密钥
-    static std::vector<unsigned char> generateKey(int key_size = 32) {
-        if (key_size != 16 && key_size != 24 && key_size != 32) {
-            throw std::runtime_error("Key length must be 16, 24 or 32 bytes");
-        }
-
-        std::vector<unsigned char> key(key_size);
-        RAND_bytes(key.data(), key_size);
-        return key;
-    }
-
-    // 静态方法：生成随机IV
-    static std::vector<unsigned char> generateIV() {
-        std::vector<unsigned char> iv(16);
-        RAND_bytes(iv.data(), 16);
-        return iv;
-    }
-};
-
-
-
-namespace pm = ::PluginsMgr;
-
-pm::PluginContent AnalysisPlugin(std::filesystem::path nkpPath) {
-    auto nkpSize = std::filesystem::file_size(nkpPath);
-    std::ifstream nkpIN(nkpPath, std::ios::binary);
-    std::vector<unsigned char> nkpFile(nkpSize);
-    nkpIN.read(reinterpret_cast<char*>(nkpFile.data()), nkpSize);
-    pm::_nkp::_Header nkpHeader = {};
-    std::copy(nkpFile.begin(), nkpFile.begin() + sizeof(pm::_nkp::_Header), reinterpret_cast<unsigned char*>(&nkpHeader));
-    nkpFile.erase(nkpFile.begin(), nkpFile.begin() + sizeof(pm::_nkp::_Header));
-    pm::PluginContent res;
-    if (nkpHeader.flag[0] != 'M' || nkpHeader.flag[1] != 'E' || nkpHeader.flag[2] != 'A' || nkpHeader.flag[3] != 'O') {
-        res.first = std::move(nkpHeader);
-        return res;
-    }
-    if (nkpHeader.nkPVer != 2) {
-        res.first = std::move(nkpHeader);
-        return res;
-    }
-    res.first = std::move(nkpHeader);
-    std::vector<unsigned char> iv, key;
-    iv.insert(iv.begin(), nkpHeader.iv, nkpHeader.iv + 16);
-    key.insert(key.begin(), nkpHeader.key, nkpHeader.key + 32);
-    AESEncryptor decryptor(key, iv);
-    auto decryptedData = decryptor.decrypt(nkpFile);
-    nkpFile.clear();
-    std::vector<unsigned char> hash(SHA256_DIGEST_LENGTH);
-    SHA256(decryptedData.data(), decryptedData.size(), hash.data());
-    std::vector<unsigned char> shash;
-    shash.insert(shash.begin(), nkpHeader.hash, nkpHeader.hash + SHA256_DIGEST_LENGTH);
-    if (shash != hash) {
-        res.first = std::move(nkpHeader);
-        return res;
-    }
-    pm::_nkp::_Manifest manifest;
-    std::copy(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Manifest::ManifestData), reinterpret_cast<unsigned char*>(&manifest.manifestPODdata));
-    decryptedData.erase(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Manifest::ManifestData));
-    manifest.Name.reserve(manifest.manifestPODdata.nameLen + 1);
-    std::copy(decryptedData.begin(), decryptedData.begin() + manifest.manifestPODdata.nameLen, reinterpret_cast<unsigned char*>(manifest.Name.data()));
-    decryptedData.erase(decryptedData.begin(), decryptedData.begin() + manifest.manifestPODdata.nameLen);
-    for (uint32_t i = 0; i < manifest.manifestPODdata.plgNum; i++) {
-        pm::_nkp::_Plg Plg;
-        std::copy(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Plg::PlgData), reinterpret_cast<unsigned char*>(&Plg.plgPODdata));
-        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Plg::PlgData));
-        Plg.name.reserve(Plg.plgPODdata.nameLen + 1);
-        Plg.entry.reserve(Plg.plgPODdata.entryLen + 1);
-        Plg.description.reserve(Plg.plgPODdata.descriptionLen + 1);
-        std::copy(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.nameLen, reinterpret_cast<unsigned char*>(Plg.name.data()));
-        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.nameLen);
-        std::copy(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.entryLen, reinterpret_cast<unsigned char*>(Plg.entry.data()));
-        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.entryLen);
-        std::copy(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.descriptionLen, reinterpret_cast<unsigned char*>(Plg.description.data()));
-        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + Plg.plgPODdata.descriptionLen);
-        manifest.plgs.push_back(std::move(Plg));
-    }
-    for (uint32_t i = 0; i < manifest.manifestPODdata.pvdNum; i++) {
-        pm::_nkp::_Pvd pvd;
-        std::copy(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Pvd::PvdData), reinterpret_cast<unsigned char*>(&pvd.pvdPODdata));
-        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + sizeof(pm::_nkp::_Pvd::PvdData));
-        pvd.callName.reserve(pvd.pvdPODdata.callLen + 1);
-        pvd.entryName.reserve(pvd.pvdPODdata.entryLen + 1);
-        std::copy(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.callLen, reinterpret_cast<unsigned char*>(pvd.callName.data()));
-        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.callLen);
-        std::copy(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.entryLen, reinterpret_cast<unsigned char*>(pvd.entryName.data()));
-        decryptedData.erase(decryptedData.begin(), decryptedData.begin() + pvd.pvdPODdata.entryLen);
-        manifest.pvds.push_back(std::move(pvd));
-    }
-    iv.clear();
-    key.clear();
-    iv.insert(iv.begin(), manifest.manifestPODdata.iv, manifest.manifestPODdata.iv + 16);
-    key.insert(key.begin(), manifest.manifestPODdata.key, manifest.manifestPODdata.key + 32);
-    decryptor.setIVandKey(iv, key);
-    auto PEData = decryptor.decrypt(decryptedData);
-    decryptedData.clear();
-    std::vector<unsigned char> pe_hash(SHA256_DIGEST_LENGTH);
-    SHA256(PEData.data(), PEData.size(), pe_hash.data());
-    res.second.second = std::move(PEData);
-    shash.clear();
-    shash.insert(shash.begin(), manifest.manifestPODdata.hash, manifest.manifestPODdata.hash + SHA256_DIGEST_LENGTH);
-    if (pe_hash != shash) {
-        return res;
-    }
-    res.second.first = std::move(manifest);
-    return res;
+    return L"获取失败";
 }
 
+// 将令牌降级为指定的完整性级别
+HANDLE DemoteTokenToIntegrityLevel(HANDLE hOriginalToken, DWORD integrityLevelRid) {
+    HANDLE hNewToken = nullptr;
+
+    // 1. 复制令牌
+    if (!DuplicateTokenEx(hOriginalToken,
+        TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT | TOKEN_QUERY |
+        TOKEN_ADJUST_SESSIONID | TOKEN_ASSIGN_PRIMARY,
+        nullptr,
+        SecurityImpersonation,
+        TokenPrimary,
+        &hNewToken)) {
+        std::wcerr << L"令牌复制失败: " << GetLastError() << std::endl;
+        return nullptr;
+    }
+
+    // 2. 设置完整性级别
+    TOKEN_MANDATORY_LABEL tml = { 0 };
+    SID_IDENTIFIER_AUTHORITY SIDAuth = SECURITY_MANDATORY_LABEL_AUTHORITY;
+
+    if (AllocateAndInitializeSid(&SIDAuth, 1,
+        integrityLevelRid,
+        0, 0, 0, 0, 0, 0, 0,
+        &tml.Label.Sid)) {
+
+        tml.Label.Attributes = SE_GROUP_INTEGRITY | SE_GROUP_INTEGRITY_ENABLED;
+
+        if (!SetTokenInformation(hNewToken,
+            TokenIntegrityLevel,
+            &tml,
+            sizeof(TOKEN_MANDATORY_LABEL))) {
+            DWORD error = GetLastError();
+            std::wcerr << L"设置完整性级别失败 (RID=" << integrityLevelRid
+                << L"): " << error << std::endl;
+            CloseHandle(hNewToken);
+            FreeSid(tml.Label.Sid);
+            return nullptr;
+        }
+
+        FreeSid(tml.Label.Sid);
+
+        // 3. 移除管理员组（如果存在）
+        PTOKEN_GROUPS pGroups = nullptr;
+        DWORD dwSize = 0;
+
+        // 获取组信息
+        GetTokenInformation(hNewToken, TokenGroups, nullptr, 0, &dwSize);
+        if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+            pGroups = (PTOKEN_GROUPS)malloc(dwSize);
+            if (GetTokenInformation(hNewToken, TokenGroups, pGroups, dwSize, &dwSize)) {
+
+                // 构建要删除的管理员组列表
+                std::vector<SID_AND_ATTRIBUTES> sidsToDelete;
+
+                for (DWORD i = 0; i < pGroups->GroupCount; i++) {
+                    PSID pSid = pGroups->Groups[i].Sid;
+
+                    // 检查是否是管理员组 (S-1-5-32-544)
+                    if (IsValidSid(pSid)) {
+                        PSID_IDENTIFIER_AUTHORITY pAuthority = GetSidIdentifierAuthority(pSid);
+
+                        // 检查是否是NT Authority (S-1-5)
+                        if (pAuthority->Value[0] == 0 &&
+                            pAuthority->Value[1] == 0 &&
+                            pAuthority->Value[2] == 0 &&
+                            pAuthority->Value[3] == 0 &&
+                            pAuthority->Value[4] == 0 &&
+                            pAuthority->Value[5] == 5) {
+
+                            DWORD dwSubAuthorityCount = *GetSidSubAuthorityCount(pSid);
+                            if (dwSubAuthorityCount == 2) {
+                                PDWORD pSubAuthority0 = GetSidSubAuthority(pSid, 0);
+                                PDWORD pSubAuthority1 = GetSidSubAuthority(pSid, 1);
+
+                                if (*pSubAuthority0 == SECURITY_BUILTIN_DOMAIN_RID &&
+                                    *pSubAuthority1 == DOMAIN_ALIAS_RID_ADMINS) {
+
+                                    SID_AND_ATTRIBUTES sidToDelete = { pSid, 0 };
+                                    sidsToDelete.push_back(sidToDelete);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 如果找到了管理员组，创建受限令牌
+                if (!sidsToDelete.empty()) {
+                    HANDLE hRestrictedToken = nullptr;
+
+                    if (CreateRestrictedToken(
+                        hNewToken,
+                        DISABLE_MAX_PRIVILEGE,          // 禁用所有特权
+                        (DWORD)sidsToDelete.size(),     // 要删除的SID数量
+                        sidsToDelete.data(),            // 要删除的SID数组
+                        0, nullptr,                     // 不删除特权
+                        0, nullptr,                     // 不添加受限SID
+                        &hRestrictedToken)) {
+
+                        CloseHandle(hNewToken);
+                        hNewToken = hRestrictedToken;
+                    }
+                }
+            }
+            free(pGroups);
+        }
+
+        // 4. 禁用或移除特权
+        TOKEN_PRIVILEGES tp = { 0 };
+        tp.PrivilegeCount = 0;
+
+        AdjustTokenPrivileges(hNewToken,
+            TRUE,        // 禁用所有特权
+            &tp,
+            0,
+            nullptr,
+            nullptr);
+
+        return hNewToken;
+    }
+
+    CloseHandle(hNewToken);
+    return nullptr;
+}
+
+// 创建Untrusted令牌的便捷函数
+HANDLE CreateUntrustedTokenEx(HANDLE hOriginalToken) {
+    return DemoteTokenToIntegrityLevel(hOriginalToken, SECURITY_MANDATORY_UNTRUSTED_RID);
+}
+
+// 创建Low令牌的便捷函数
+HANDLE CreateLowToken(HANDLE hOriginalToken) {
+    return DemoteTokenToIntegrityLevel(hOriginalToken, SECURITY_MANDATORY_LOW_RID);
+}
 
 int main() {
-    auto res = AnalysisPlugin("tst.nkp");
-    __debugbreak();
+
+    std::wcout.imbue(std::locale("zh_CN.UTF-8"));
+    std::wcerr.imbue(std::locale("zh_CN.UTF-8"));
+    std::wcin.imbue(std::locale("zh_CN.UTF-8"));
+
+    HANDLE hProcessToken = nullptr;
+    HANDLE hUntrustedToken = nullptr;
+
+    // 获取当前进程令牌
+    if (!OpenProcessToken(GetCurrentProcess(),
+        TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES,
+        &hProcessToken)) {
+        std::wcerr << L"打开进程令牌失败: " << GetLastError() << std::endl;
+        return 1;
+    }
+
+    // 显示当前完整性级别
+    std::wcout << L"当前进程完整性级别: "
+        << GetCurrentIntegrityLevel(hProcessToken) << std::endl;
+
+    // 创建Untrusted令牌
+    hUntrustedToken = CreateUntrustedTokenEx(hProcessToken);
+
+    if (hUntrustedToken) {
+        std::wcout << L"\n成功创建Untrusted令牌!" << std::endl;
+        std::wcout << L"新令牌完整性级别: "
+            << GetCurrentIntegrityLevel(hUntrustedToken) << std::endl;
+
+        // 使用Untrusted令牌创建进程（示例）
+        STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+        PROCESS_INFORMATION pi = { 0 };
+
+        // 注意：notepad.exe可能无法以Untrusted级别运行
+        // 这里使用calc.exe作为示例
+        wchar_t cmdLine[] = L"cmd.exe";
+
+        std::wcout << L"\n尝试以Untrusted完整性级别创建进程..." << std::endl;
+
+        if (CreateProcessAsUserW(hUntrustedToken,
+            nullptr,
+            cmdLine,
+            nullptr,
+            nullptr,
+            FALSE,
+            0,
+            nullptr,
+            nullptr,
+            &si,
+            &pi)) {
+            std::wcout << L"进程创建成功! PID: " << pi.dwProcessId << std::endl;
+
+            // 等待进程结束
+            WaitForSingleObject(pi.hProcess, INFINITE);
+
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+        }
+        else {
+            DWORD error = GetLastError();
+            std::wcerr << L"创建进程失败: " << error << std::endl;
+
+            // 如果Untrusted失败，尝试Low级别
+            if (error == ERROR_ELEVATION_REQUIRED || error == ERROR_ACCESS_DENIED) {
+                std::wcout << L"\n尝试使用Low完整性级别..." << std::endl;
+
+                CloseHandle(hUntrustedToken);
+                hUntrustedToken = CreateLowToken(hProcessToken);
+
+                if (hUntrustedToken) {
+                    if (CreateProcessAsUserW(hUntrustedToken,
+                        nullptr,
+                        cmdLine,
+                        nullptr,
+                        nullptr,
+                        FALSE,
+                        0,
+                        nullptr,
+                        nullptr,
+                        &si,
+                        &pi)) {
+                        std::wcout << L"进程以Low完整性级别创建成功!" << std::endl;
+
+                        WaitForSingleObject(pi.hProcess, 2000);
+
+                        CloseHandle(pi.hProcess);
+                        CloseHandle(pi.hThread);
+                    }
+                }
+            }
+        }
+
+        CloseHandle(hUntrustedToken);
+    }
+    else {
+        std::wcerr << L"创建Untrusted令牌失败" << std::endl;
+    }
+
+    CloseHandle(hProcessToken);
+
+    return 0;
 }
