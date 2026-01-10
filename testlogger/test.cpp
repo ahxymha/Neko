@@ -6,6 +6,12 @@
 #include <thread>
 #include <random>
 #include <chrono>
+#ifdef _DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <crtdbg.h>
+#define new new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#include <winerror.h>
 
 // 定义日志级别枚举
 enum LogLevel {
@@ -47,14 +53,16 @@ bool InitLogger() {
 }
 
 // 清理资源
-void CleanupLogger() {
+void CleanupLogger(bool isChild) {
     if (hLoggerDll) {
         // 注意：日志系统可能需要一些时间来刷新缓冲区
         // 等待一段时间确保所有日志都被处理
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        Stop stop = (Stop)GetProcAddress(hLoggerDll, "Stop");
-        stop();
+        if(!isChild){
+            Stop stop = (Stop)GetProcAddress(hLoggerDll, "Stop");
+            stop();
+        }
         FreeLibrary(hLoggerDll);
         hLoggerDll = nullptr;
         Sendlog = nullptr;
@@ -177,27 +185,64 @@ void StressTest(int numThreads, int logsPerThread) {
     }
 }
 
+HANDLE HexStringToHandle(const std::string& hexStr) {
+    // 验证输入只包含有效的十六进制字符
+    for (char c : hexStr) {
+        if (!((c >= '0' && c <= '9') ||
+            (c >= 'a' && c <= 'f') ||
+            (c >= 'A' && c <= 'F'))) {
+            std::cerr << "Invalid hex character in handle string: " << c << std::endl;
+            return INVALID_HANDLE_VALUE;
+        }
+    }
+
+    std::stringstream ss;
+    uintptr_t handleValue;
+
+    // 将十六进制字符串转换为整数
+    ss << std::hex << hexStr;
+    ss >> handleValue;
+
+    // 检查转换是否成功
+    if (ss.fail()) {
+        std::cerr << "Failed to convert hex string to handle" << std::endl;
+        return INVALID_HANDLE_VALUE;
+    }
+
+    return reinterpret_cast<HANDLE>(handleValue);
+}
+
 // 多进程测试函数
 void MultiProcessTest() {
     std::cout << "\n=== 多进程测试开始 ===" << std::endl;
     
     // 创建多个进程
-    const int numProcesses = 3;
+    const int numProcesses = 512;
     STARTUPINFOA si[numProcesses];
     PROCESS_INFORMATION pi[numProcesses];
     
     // 获取当前可执行文件路径
     char exePath[MAX_PATH];
     GetModuleFileNameA(NULL, exePath, MAX_PATH);
-    
+
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+    auto startEvent = CreateEvent(&sa, TRUE, FALSE, NULL);
+
+    std::ostringstream oss;
+    oss << std::hex << (intptr_t)startEvent;
+
     // 为每个进程创建命令行参数
     for (int i = 0; i < numProcesses; i++) {
         ZeroMemory(&si[i], sizeof(STARTUPINFOA));
         si[i].cb = sizeof(STARTUPINFOA);
         ZeroMemory(&pi[i], sizeof(PROCESS_INFORMATION));
+
         
         // 构建命令行：传递进程ID作为参数
-        std::string cmdLine = std::string("\"") + exePath + "\" child " + std::to_string(i + 1);
+        std::string cmdLine = std::string("\"") + exePath + "\" child " + std::to_string(i + 1) + ' ' + oss.str();
         
         std::cout << "创建进程 " << i << ": " << cmdLine << std::endl;
         
@@ -207,8 +252,8 @@ void MultiProcessTest() {
             const_cast<char*>(cmdLine.c_str()), // 命令行
             NULL,                   // 进程句柄不可继承
             NULL,                   // 线程句柄不可继承
-            FALSE,                  // 不继承句柄
-            CREATE_NEW_CONSOLE,     // 为新进程创建新控制台
+            TRUE,                  // 继承句柄
+            NULL,     // 为新进程创建新控制台
             NULL,                   // 使用父进程环境
             NULL,                   // 使用父进程当前目录
             &si[i],                 // STARTUPINFO
@@ -220,6 +265,8 @@ void MultiProcessTest() {
         }
     }
     
+    SetEvent(startEvent);
+
     // 等待所有进程完成
     for (int i = 0; i < numProcesses; i++) {
         if (pi[i].hProcess) {
@@ -237,16 +284,18 @@ void MultiProcessTest() {
 }
 
 // 子进程函数
-void ChildProcessFunction(int processId) {
+void ChildProcessFunction(int processId,HANDLE run) {
     std::cout << "子进程 " << processId << " 启动" << std::endl;
-    
+
     // 子进程也需要初始化DLL
     if (!InitLogger()) {
         std::cerr << "子进程初始化Logger失败!" << std::endl;
         return;
     }
     
-    std::string processName = "进程-" + std::to_string(processId);
+    std::string processName = "进程" + std::to_string(processId);
+
+    WaitForSingleObject(run, INFINITE);
     
     for (int i = 0; i < 10; i++) {
         std::string logMessage = "[" + processName + "] 日志 #" + std::to_string(i);
@@ -264,28 +313,52 @@ void ChildProcessFunction(int processId) {
     }
     
     // 子进程结束后清理
-    CleanupLogger();
-    
+    CleanupLogger(true);
     std::cout << "子进程 " << processId << " 完成" << std::endl;
 }
 
 int main(int argc, char* argv[]) {
+
+#ifdef _DEBUG
+    _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+#endif
     // 初始化随机种子
     srand(static_cast<unsigned int>(time(nullptr)));
-    
+
+
     std::cout << "NekoLogger 多进程日志系统测试程序" << std::endl;
     std::cout << "=================================" << std::endl;
-    
+
     // 检查是否是子进程模式
     if (argc > 1 && std::string(argv[1]) == "child") {
+        std::cout << "Begin" << std::endl;
         int processId = (argc > 2) ? std::stoi(argv[2]) : 1;
-        ChildProcessFunction(processId);
-        
-        std::cout << "按Enter键退出子进程..." << std::endl;
-        std::cin.get();
-        
+        if (!InitLogger()) {
+            std::cerr << "初始化Logger失败，程序退出!" << std::endl;
+            return 1;
+        }
+        std::string hxh(argv[3]);
+        ChildProcessFunction(processId, HexStringToHandle(hxh));
+
         return 0;
     }
+
+    if (argc > 1 && std::string(argv[1]) == "log") {
+        if (!InitLogger()) {
+            std::cerr << "初始化Logger失败，程序退出!" << std::endl;
+            return 1;
+        }
+
+        if (Sendlog) {
+            char ok[] = "日志显示端加载完毕";
+            Sendlog(1, ok, 28);
+        }
+        std::cin.get();
+        CleanupLogger(false);
+        return 0;
+    }
+
+    
     
     // 主测试程序
     try {
@@ -303,7 +376,7 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
         
          // 测试2: 多线程压力测试
-         StressTest(3, 10);  // 3个线程，每个线程10条日志
+         StressTest(256, 50);  // 256个线程，每个线程50条日志
         
          // 等待一段时间
          std::cout << "\n等待2秒，让日志系统处理..." << std::endl;
@@ -318,12 +391,12 @@ int main(int argc, char* argv[]) {
         
     } catch (const std::exception& e) {
         std::cerr << "测试过程中发生异常: " << e.what() << std::endl;
-        CleanupLogger();
+        CleanupLogger(false);
         return 1;
     }
     
     // 清理资源
-    CleanupLogger();
+    CleanupLogger(false);
     
     std::cout << "\n所有测试完成！" << std::endl;
     std::cout << "按Enter键退出..." << std::endl;

@@ -143,38 +143,6 @@ private:
     Logger(const Logger&) = delete;
     Logger& operator=(const Logger&) = delete;
 
-    // 生成转储文件（Windows）
-    static void generateDump() {
-        HANDLE hDumpFile = CreateFileW(
-            L"logger_coredump.dmp",
-            GENERIC_WRITE,
-            0,
-            NULL,
-            CREATE_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL,
-            NULL
-        );
-
-        if (hDumpFile != INVALID_HANDLE_VALUE) {
-            MINIDUMP_EXCEPTION_INFORMATION dumpInfo;
-            dumpInfo.ThreadId = GetCurrentThreadId();
-            dumpInfo.ExceptionPointers = nullptr;
-            dumpInfo.ClientPointers = FALSE;
-
-            MiniDumpWriteDump(
-                GetCurrentProcess(),
-                GetCurrentProcessId(),
-                hDumpFile,
-                MiniDumpWithFullMemory,
-                &dumpInfo,
-                nullptr,
-                nullptr
-            );
-
-            CloseHandle(hDumpFile);
-        }
-    }
-
     // 日志处理线程函数
     void logWorker() {
         while (_running) {
@@ -229,11 +197,6 @@ private:
                 SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE); // 恢复默认颜色
             }
 
-            // 如果是 PANIC 级别，生成转储文件并终止程序
-            if (logEntry.level == LogLevel::PANIC) {
-                std::cerr << "PANIC level log detected. Generating core dump..." << std::endl;
-                generateDump();
-            }
         }
     }
 
