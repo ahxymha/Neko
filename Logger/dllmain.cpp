@@ -7,6 +7,7 @@
 #define INIT_ONCE_STATIC_INIT {0}
 #endif // !INIT_ONCE_STATIC_INIT
 #include <sddl.h>
+#include <stack>
 
 
 #pragma pack(push, 1)
@@ -17,61 +18,13 @@ struct LogMode {
     uint8_t flag;                   // 标志位
     uint64_t checksum;              // 校验和，用于检测损坏
 };
-#pragma pack(pop)
 
-// 计算简单校验和
-static uint64_t CalculateChecksum(const struct LogMode* data) {
-    struct LogMode temp = *data;
-    temp.checksum = 0;
-
-    const uint8_t* bytes = (const uint8_t*)&temp;
-    size_t size = sizeof(struct LogMode);
-
-    uint32_t sum1 = 0;
-    uint32_t sum2 = 0;
-
-    for (size_t i = 0; i < size; i++) {
-        sum1 = (sum1 + bytes[i]) & 0xFFFFFFFF;
-        sum2 = (sum2 + sum1) & 0xFFFFFFFF;
-    }
-
-    // 合并两个32位校验和
-    return ((uint64_t)sum2 << 32) | sum1;
-}
-
-// 共享段定义
-#pragma data_seg(".shared")
-LogMode g_sharedLogMode = {
-    0,
-    "",      // uuid_namespace
-    "",
-    0,       // flag
-    0        // checksum
-};
-uint8_t isAvalibale = 0;
-#pragma data_seg()
-#pragma comment(linker, "/SECTION:.shared,RWS")
-
-std::string GenerateUUID() {
-    // 使用随机设备作为种子源
-    std::random_device rd;
-    // 使用Mersenne Twister算法
-    std::mt19937 gen(rd());
-    // 定义随机数范围：0 到 2^32-1 (32位无符号整数)
-    std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
-
-    // 生成随机数并转换为16进制字符串
-    std::stringstream ss;
-    ss << std::hex << std::setw(8) << std::setfill('0') << dis(gen);
-    return ss.str();
-}
-
-class tQueue{
+class tQueue {
 private:
     std::queue<DWORD> data;
     std::mutex mtx;
 public:
-    void push(DWORD &val){
+    void push(DWORD& val) {
         mtx.lock();
         data.push(val);
         mtx.unlock();
@@ -97,20 +50,69 @@ public:
     }
 };
 
-tQueue q_threadAvaliable;
-bool isProcessAvalibale = false;
-HANDLE h_stop;
-MessageQueue<std::string> thisProcessLogQueue;
-Logger& Log = Logger::instance();
-
 struct LogThread {
-    unsigned short index=0;
+    unsigned short index = 0;
     std::thread worker;
-    HANDLE h_piep=0;
-    bool avalibale=1;
+    HANDLE h_piep = 0;
+    bool avalibale = 1;
 };
 
+#pragma pack(pop)
+
 std::vector<LogThread> v_threadPool;
+tQueue q_threadAvaliable;
+bool isProcessAvalibale = false;
+HANDLE g_stopflag = nullptr;
+MessageQueue<std::string> thisProcessLogQueue;
+Logger& Log = Logger::instance();
+std::stack<HANDLE> h_threads;
+
+// 共享段定义
+#pragma data_seg(".shared")
+LogMode g_sharedLogMode = {
+    0,
+    "",      // uuid_namespace
+    "",
+    0,       // flag
+    0        // checksum
+};
+uint8_t isAvalibale = 0;
+#pragma data_seg()
+#pragma comment(linker, "/SECTION:.shared,RWS")
+
+// 计算简单校验和
+static uint64_t CalculateChecksum(const struct LogMode* data) {
+    struct LogMode temp = *data;
+    temp.checksum = 0;
+
+    const uint8_t* bytes = (const uint8_t*)&temp;
+    size_t size = sizeof(struct LogMode);
+
+    uint32_t sum1 = 0;
+    uint32_t sum2 = 0;
+
+    for (size_t i = 0; i < size; i++) {
+        sum1 = (sum1 + bytes[i]) & 0xFFFFFFFF;
+        sum2 = (sum2 + sum1) & 0xFFFFFFFF;
+    }
+
+    // 合并两个32位校验和
+    return ((uint64_t)sum2 << 32) | sum1;
+}
+
+std::string GenerateUUID() {
+    // 使用随机设备作为种子源
+    std::random_device rd;
+    // 使用Mersenne Twister算法
+    std::mt19937 gen(rd());
+    // 定义随机数范围：0 到 2^32-1 (32位无符号整数)
+    std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
+
+    // 生成随机数并转换为16进制字符串
+    std::stringstream ss;
+    ss << std::hex << std::setw(8) << std::setfill('0') << dis(gen);
+    return ss.str();
+}
 
 void LogWorker(HANDLE pipe,DWORD index) {
     while(true){
@@ -243,12 +245,12 @@ void PipeServer() {
         }
         else {
             g_sharedLogMode.flag = 3;
-            SetEvent(h_stop);
+            SetEvent(g_stopflag);
         }
         return;
         });
     tmpThread.detach();
-    while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT){
+    while (WaitForSingleObject(g_stopflag, 0) == WAIT_TIMEOUT){
         BOOL conected = FALSE;
         while (q_threadAvaliable.empty()) {
             isAvalibale = 0;
@@ -256,7 +258,7 @@ void PipeServer() {
         }
         isAvalibale = 1;
         DWORD index = q_threadAvaliable.get();
-        while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT) {
+        while (WaitForSingleObject(g_stopflag, 0) == WAIT_TIMEOUT) {
             HANDLE pipe;
             pipe = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &la);
             if (pipe == NULL || pipe == INVALID_HANDLE_VALUE) {
@@ -277,6 +279,7 @@ void PipeServer() {
             v_threadPool.at(index).avalibale = false;
             std::thread worker(LogWorker, v_threadPool.at(index).h_piep, index);
             v_threadPool.at(index).worker = std::move(worker);
+            h_threads.push(reinterpret_cast<HANDLE>(v_threadPool.at(index).worker.native_handle()));
             v_threadPool.at(index).worker.detach();
             break;
         }
@@ -295,13 +298,9 @@ static BOOL CALLBACK init(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContext
     std::string uuid_e = GenerateUUID();
     strncpy_s(g_sharedLogMode.uuid_event, sizeof(g_sharedLogMode.uuid_event), uuid_e.c_str(), uuid_e.size());
 
-    h_stop = CreateEventA(NULL, TRUE, FALSE, NULL);
-    if (h_stop == NULL) {
-        return FALSE;
-    }
-
     std::thread mainThread(PipeServer);
     if(mainThread.joinable()){
+        h_threads.push(reinterpret_cast<HANDLE>(mainThread.native_handle()));
         mainThread.detach();
     }
     else {
@@ -379,18 +378,16 @@ extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len) {
     return;
 }
 
-HANDLE scssStop = nullptr;
-
 extern"C" LOG_API void __stdcall Stop() {
     DWORD processId = GetCurrentProcessId();
     if (g_sharedLogMode.flag != 2) {
         Log.error() << "Log system is not start up" << std::endl;
     }
-    if (processId != g_sharedLogMode.start_pid) {
-        SetEvent(scssStop);
-        return;
+    SetEvent(g_stopflag);
+    for (int i = 0; i < h_threads.size(); i++) {
+        WaitForSingleObject(h_threads.top(), INFINITE);
+        h_threads.pop();
     }
-    SetEvent(h_stop);
 }
 
 BOOL APIENTRY DllMain( HMODULE hModule,
@@ -405,7 +402,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             static INIT_ONCE initOnce = INIT_ONCE_STATIC_INIT;
             InitOnceExecuteOnce(&initOnce, init, NULL, NULL);
         }
-        scssStop = CreateEvent(NULL, TRUE, FALSE, NULL);
+        g_stopflag = CreateEvent(NULL, TRUE, FALSE, NULL);
         std::thread scss([]() {
             while (g_sharedLogMode.flag != 2) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -429,7 +426,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
                 return;
             }
             isProcessAvalibale = true;
-            while (WaitForSingleObject(scssStop, 0) == WAIT_TIMEOUT) {
+            while (WaitForSingleObject(g_stopflag, 0) == WAIT_TIMEOUT) {
                 std::string logc;
                 thisProcessLogQueue.wait(logc);
                 DWORD ct;
@@ -445,12 +442,16 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             DWORD ct;
             WriteFile(pipe, "X", sizeof(char) * 2, &ct, NULL);
             });
+        h_threads.push(reinterpret_cast<HANDLE>(scss.native_handle()));
         scss.detach();
         break;
     }
     case DLL_THREAD_ATTACH:
+        break;
     case DLL_THREAD_DETACH:
+        break;
     case DLL_PROCESS_DETACH:{
+        Stop();
         break;
     }
     }
