@@ -115,36 +115,49 @@ std::string GenerateUUID() {
 }
 
 void LogWorker(HANDLE pipe,DWORD index) {
-    while(true){
+    while(WaitForSingleObject(g_stopflag, 0) == WAIT_TIMEOUT){
         char* buf = new char[65537];
         DWORD rn = 0;
         if (!ReadFile(pipe, buf, 65536, &rn, NULL)) {
             if (GetLastError() == ERROR_BROKEN_PIPE) {
-                if (DisconnectNamedPipe(pipe)) {
-                    CloseHandle(pipe);
-                    v_threadPool.at(index).h_piep = nullptr;
-                    std::stringstream s_pipe;
-                    s_pipe << "\\\\.\\pipe\\" << g_sharedLogMode.uuid_pipe;
-                    std::string m_pipe = std::move(s_pipe.str());
-                    SECURITY_ATTRIBUTES la;
-                    la.nLength = sizeof(SECURITY_ATTRIBUTES);
-                    la.bInheritHandle = FALSE;
-                    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
-                        Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
-                        delete[] buf;
-                        return;
-                    }
-                    v_threadPool.at(index).h_piep = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 128, 65536, 65536, 0, &la);
-                    q_threadAvaliable.push(index);
-                    delete[] buf;
-                    return;
-                }
+                //if (DisconnectNamedPipe(pipe)) {
+                //    CloseHandle(pipe);
+                //    v_threadPool.at(index).h_piep = nullptr;
+                //    std::stringstream s_pipe;
+                //    s_pipe << "\\\\.\\pipe\\" << g_sharedLogMode.uuid_pipe;
+                //    std::string m_pipe = std::move(s_pipe.str());
+                //    SECURITY_ATTRIBUTES la;
+                //    la.nLength = sizeof(SECURITY_ATTRIBUTES);
+                //    la.bInheritHandle = FALSE;
+                //    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
+                //        Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
+                //        delete[] buf;
+                //        return;
+                //    }
+                //    v_threadPool.at(index).h_piep = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 128, 65536, 65536, 0, &la);
+                //    q_threadAvaliable.push(index);
+                //    delete[] buf;
+                //    return;
+                //}
+                DisconnectNamedPipe(pipe);
+                CloseHandle(pipe);
+                v_threadPool.at(index).h_piep = nullptr;
+                v_threadPool.at(index).avalibale = true;
+                q_threadAvaliable.push(index);
+                delete[] buf;
+                return;
             }
             Log.error() << "ReadFile ERROR:" << GetLastError() << std::endl;
+            DisconnectNamedPipe(pipe);
+            CloseHandle(pipe);
+            v_threadPool.at(index).h_piep = nullptr;
+            v_threadPool.at(index).avalibale = true;
+            q_threadAvaliable.push(index);
             return;
         }
         if (rn == 0) {
             Log.error() << "ReadFile ERROR:" << "Data Length is 0" << std::endl;
+            delete[] buf;
             return;
         }
         buf[rn] = '\0';
@@ -171,25 +184,31 @@ void LogWorker(HANDLE pipe,DWORD index) {
             break;
         }
         case 'X': {
-            if (DisconnectNamedPipe(pipe)) {
-                CloseHandle(pipe);
-                v_threadPool.at(index).h_piep = nullptr;
-                std::stringstream s_pipe;
-                s_pipe << "\\\\.\\pipe\\" << g_sharedLogMode.uuid_pipe;
-                std::string m_pipe = std::move(s_pipe.str());
-                SECURITY_ATTRIBUTES la;
-                la.nLength = sizeof(SECURITY_ATTRIBUTES);
-                la.bInheritHandle = FALSE;
-                if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
-                    Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
-                    return;
-                }
-                v_threadPool.at(index).h_piep = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &la);
-                q_threadAvaliable.push(index);
-                delete[] buf;
-                return;
-            }
-            break;
+            //if (DisconnectNamedPipe(pipe)) {
+            //    CloseHandle(pipe);
+            //    v_threadPool.at(index).h_piep = nullptr;
+            //    std::stringstream s_pipe;
+            //    s_pipe << "\\\\.\\pipe\\" << g_sharedLogMode.uuid_pipe;
+            //    std::string m_pipe = std::move(s_pipe.str());
+            //    SECURITY_ATTRIBUTES la;
+            //    la.nLength = sizeof(SECURITY_ATTRIBUTES);
+            //    la.bInheritHandle = FALSE;
+            //    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
+            //        Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
+            //        return;
+            //    }
+            //    v_threadPool.at(index).h_piep = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &la);
+            //    q_threadAvaliable.push(index);
+            //    delete[] buf;
+            //    return;
+            //}
+            DisconnectNamedPipe(pipe);
+            CloseHandle(pipe);
+            v_threadPool.at(index).h_piep = nullptr;
+            v_threadPool.at(index).avalibale = true;
+            q_threadAvaliable.push(index);
+            delete[] buf;
+            return;
         }
         default: {
             Log.error() << "Format ERROR,Print as ERROR" << std::endl;
@@ -201,6 +220,8 @@ void LogWorker(HANDLE pipe,DWORD index) {
         Log.log(lev) << content << std::endl;
         delete[] buf;
     }
+    DisconnectNamedPipe(pipe);
+    CloseHandle(pipe);
     return;
 }
 
@@ -258,14 +279,14 @@ void PipeServer() {
         }
         isAvalibale = 1;
         DWORD index = q_threadAvaliable.get();
+        HANDLE pipe;
+        pipe = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &la);
+        if (pipe == NULL || pipe == INVALID_HANDLE_VALUE) {
+            Log.error() << "Index:" << index << "CreateNamedPipe ERROR:" << GetLastError() << std::endl;
+            return;
+        }
+        v_threadPool.at(index).h_piep = std::move(pipe);
         while (WaitForSingleObject(g_stopflag, 0) == WAIT_TIMEOUT) {
-            HANDLE pipe;
-            pipe = CreateNamedPipeA(m_pipe.c_str(), PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &la);
-            if (pipe == NULL || pipe == INVALID_HANDLE_VALUE) {
-                Log.error() << "Index:" << index << "CreateNamedPipe ERROR:" << GetLastError() << std::endl;
-                return;
-            }
-            v_threadPool.at(index).h_piep = std::move(pipe);
             SetEvent(ableConn);
             conected = ConnectNamedPipe(v_threadPool.at(index).h_piep, NULL);
             isAvalibale = 0;
@@ -384,6 +405,11 @@ extern"C" LOG_API void __stdcall Stop() {
         Log.error() << "Log system is not start up" << std::endl;
     }
     SetEvent(g_stopflag);
+    for (auto& thread : v_threadPool) {
+        if (thread.h_piep != nullptr) {
+            CloseHandle(thread.h_piep);
+        }
+    }
     for (int i = 0; i < h_threads.size(); i++) {
         WaitForSingleObject(h_threads.top(), INFINITE);
         h_threads.pop();

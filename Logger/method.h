@@ -45,6 +45,18 @@ public:
         _queue.pop();
     }
 
+    void wait(T& msg, HANDLE stop) {
+        std::unique_lock<std::mutex> lck(_mtx);
+        while (_queue.empty()) {
+            _cv.wait_for(lck, std::chrono::milliseconds(100));
+            if (WaitForSingleObject(stop, 0) != WAIT_TIMEOUT) {
+                return;
+            }
+        }
+        msg = _queue.front();
+        _queue.pop();
+    }
+
     size_t size() {
         std::unique_lock<std::mutex> lck(_mtx);
         return _queue.size();
