@@ -1,14 +1,28 @@
 ﻿// dllmain.cpp : 定义 DLL 应用程序的入口点。
 #include "pch.h"
 #include <random>
-#include <atomic>
-#include <codecvt>
 #ifndef INIT_ONCE_STATIC_INIT
 #define INIT_ONCE_STATIC_INIT {0}
 #endif // !INIT_ONCE_STATIC_INIT
 #include <sddl.h>
 #include <stack>
-
+#include <string.h>
+#include <minidumpapiset.h>
+#include <Windows.h>
+#include <chrono>
+#include <cstdint>
+#include <iomanip>
+#include <ios>
+#include <mutex>
+#include <ostream>
+#include <queue>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+#include "framework.h"
+#include "method.h"
 
 #pragma pack(push, 1)
 struct LogMode {
@@ -47,6 +61,14 @@ public:
         DWORD res = data.front();
         mtx.unlock();
         return res;
+    }
+    void clear() {
+        mtx.lock();
+        while (!data.empty()) {
+            data.pop();
+        }
+        mtx.unlock();
+        return;
     }
 };
 
@@ -144,6 +166,10 @@ void LogWorker(HANDLE pipe,DWORD index) {
                 v_threadPool.at(index).h_piep = nullptr;
                 v_threadPool.at(index).avalibale = true;
                 q_threadAvaliable.push(index);
+                delete[] buf;
+                return;
+            }
+            if (WaitForSingleObject(g_stopflag, 0) != WAIT_TIMEOUT) {
                 delete[] buf;
                 return;
             }
@@ -290,6 +316,10 @@ void PipeServer() {
             SetEvent(ableConn);
             conected = ConnectNamedPipe(v_threadPool.at(index).h_piep, NULL);
             isAvalibale = 0;
+            if (WaitForSingleObject(g_stopflag, 0) != WAIT_TIMEOUT) {
+                CloseHandle(ableConn);
+                return;
+            }
             if (!conected) {
                 if (GetLastError() != ERROR_PIPE_CONNECTED) {
                     Log.error() << "Index:" << index << "ConnectNamedPipe ERROR:" << GetLastError() << std::endl;
@@ -405,15 +435,29 @@ extern"C" LOG_API void __stdcall Stop() {
         Log.error() << "Log system is not start up" << std::endl;
     }
     SetEvent(g_stopflag);
+    Log.info() << "This system will be closed" << std::endl;
+    if (processId != g_sharedLogMode.start_pid) {
+        for (int i = 0; i < h_threads.size(); i++) {
+            WaitForSingleObject(h_threads.top(), INFINITE);
+            h_threads.pop();
+        }
+        Log.stop();
+        return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     for (auto& thread : v_threadPool) {
         if (thread.h_piep != nullptr) {
+            CancelIoEx(thread.h_piep, NULL);
             CloseHandle(thread.h_piep);
+            thread.h_piep = nullptr;
         }
     }
+    Log.stop();
     for (int i = 0; i < h_threads.size(); i++) {
-        WaitForSingleObject(h_threads.top(), INFINITE);
+        WaitForSingleObject(h_threads.top(), 5000);
         h_threads.pop();
     }
+    v_threadPool.clear();
 }
 
 BOOL APIENTRY DllMain( HMODULE hModule,
@@ -454,7 +498,14 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             isProcessAvalibale = true;
             while (WaitForSingleObject(g_stopflag, 0) == WAIT_TIMEOUT) {
                 std::string logc;
-                thisProcessLogQueue.wait(logc);
+                try{
+                    thisProcessLogQueue.wait(logc, g_stopflag);
+                }
+                catch (SystemClose e) {
+                    DWORD ct;
+                    WriteFile(pipe, "X", sizeof(char) * 2, &ct, NULL);
+                    return;
+                }
                 DWORD ct;
                 if (!WriteFile(pipe, logc.c_str(), logc.size() * sizeof(char), &ct, NULL)) {
                     Log.error() << "WritePipe ERROR:" << GetLastError() << ' ' << "PID:" << GetCurrentProcessId() << std::endl;

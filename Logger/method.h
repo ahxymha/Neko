@@ -15,8 +15,15 @@
 #include <iomanip>
 #include <memory>
 #include <functional>
+#include <exception>
 
 #pragma comment(lib, "dbghelp.lib")
+
+struct SystemClose : public std::exception {
+    const char* what() const throw () {
+        return "SystemClosing";
+    }
+};
 
 // 消息队列模板类
 template <typename T>
@@ -50,7 +57,7 @@ public:
         while (_queue.empty()) {
             _cv.wait_for(lck, std::chrono::milliseconds(100));
             if (WaitForSingleObject(stop, 0) != WAIT_TIMEOUT) {
-                return;
+                throw SystemClose();
             }
         }
         msg = _queue.front();
