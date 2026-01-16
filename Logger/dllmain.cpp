@@ -23,6 +23,7 @@
 #include <vector>
 #include "framework.h"
 #include "method.h"
+#include <vld.h>
 
 #pragma pack(push, 1)
 struct LogMode {
@@ -73,10 +74,48 @@ public:
 };
 
 struct LogThread {
+    std::mutex t_mtx;
     unsigned short index = 0;
     std::thread worker;
+    HANDLE h_thread = nullptr;
     HANDLE h_piep = 0;
     bool avalibale = 1;
+    LogThread() = default;
+    LogThread(LogThread&& other) 
+        : t_mtx(),
+        index(other.index),
+        worker(std::move(other.worker)),
+        h_thread(other.h_thread),
+        h_piep(other.h_piep),
+        avalibale(other.avalibale) {
+        if (!other.t_mtx.try_lock()) {
+            throw std::runtime_error("Other thread is running");
+        }
+        other.h_thread = nullptr;
+        other.h_piep = nullptr;
+        other.avalibale = false;
+        other.index = 0;
+    }
+    LogThread& operator=(LogThread&& other) {
+        if (this != &other) {
+            if (!other.t_mtx.try_lock()) {
+                throw std::runtime_error("Other thread is running");
+            }
+            index = other.index;
+            worker = std::move(other.worker);
+            h_thread = other.h_thread;
+            h_piep = other.h_piep;
+            avalibale = other.avalibale;
+
+            other.h_thread = nullptr;
+            other.h_piep = nullptr;
+            other.avalibale = false;
+            other.index = 0;
+        }
+        return *this;
+    }
+    LogThread(const LogThread&) = delete;
+    LogThread& operator=(const LogThread&) = delete;
 };
 
 #pragma pack(pop)
@@ -137,10 +176,11 @@ std::string GenerateUUID() {
 }
 
 void LogWorker(HANDLE pipe,DWORD index) {
+    std::lock_guard<std::mutex> lck(v_threadPool.at(index).t_mtx);
     while(WaitForSingleObject(g_stopflag, 0) == WAIT_TIMEOUT){
-        char* buf = new char[65537];
+        std::unique_ptr<char> buf(new char[65537]);
         DWORD rn = 0;
-        if (!ReadFile(pipe, buf, 65536, &rn, NULL)) {
+        if (!ReadFile(pipe, buf.get(), 65536, &rn, NULL)) {
             if (GetLastError() == ERROR_BROKEN_PIPE) {
                 //if (DisconnectNamedPipe(pipe)) {
                 //    CloseHandle(pipe);
@@ -165,12 +205,11 @@ void LogWorker(HANDLE pipe,DWORD index) {
                 CloseHandle(pipe);
                 v_threadPool.at(index).h_piep = nullptr;
                 v_threadPool.at(index).avalibale = true;
+                v_threadPool.at(index).h_thread = nullptr;
                 q_threadAvaliable.push(index);
-                delete[] buf;
                 return;
             }
             if (WaitForSingleObject(g_stopflag, 0) != WAIT_TIMEOUT) {
-                delete[] buf;
                 return;
             }
             Log.error() << "ReadFile ERROR:" << GetLastError() << std::endl;
@@ -178,17 +217,17 @@ void LogWorker(HANDLE pipe,DWORD index) {
             CloseHandle(pipe);
             v_threadPool.at(index).h_piep = nullptr;
             v_threadPool.at(index).avalibale = true;
+            v_threadPool.at(index).h_thread = nullptr;
             q_threadAvaliable.push(index);
             return;
         }
         if (rn == 0) {
             Log.error() << "ReadFile ERROR:" << "Data Length is 0" << std::endl;
-            delete[] buf;
             return;
         }
-        buf[rn] = '\0';
+        buf.get()[rn] = '\0';
         Logger::LogLevel lev;
-        switch (buf[0]) {
+        switch (buf.get()[0]) {
         case 'D': {
             lev = Logger::LogLevel::DEBUG;
             break;
@@ -232,8 +271,8 @@ void LogWorker(HANDLE pipe,DWORD index) {
             CloseHandle(pipe);
             v_threadPool.at(index).h_piep = nullptr;
             v_threadPool.at(index).avalibale = true;
+            v_threadPool.at(index).h_thread = nullptr;
             q_threadAvaliable.push(index);
-            delete[] buf;
             return;
         }
         default: {
@@ -241,10 +280,9 @@ void LogWorker(HANDLE pipe,DWORD index) {
             lev = Logger::LogLevel::ERROR;
         }
         }
-        buf[0] = ' ';
-        std::string content(buf);
+        buf.get()[0] = ' ';
+        std::string content(buf.get());
         Log.log(lev) << content << std::endl;
-        delete[] buf;
     }
     DisconnectNamedPipe(pipe);
     CloseHandle(pipe);
@@ -330,7 +368,11 @@ void PipeServer() {
             v_threadPool.at(index).avalibale = false;
             std::thread worker(LogWorker, v_threadPool.at(index).h_piep, index);
             v_threadPool.at(index).worker = std::move(worker);
-            h_threads.push(reinterpret_cast<HANDLE>(v_threadPool.at(index).worker.native_handle()));
+            v_threadPool.at(index).h_thread = reinterpret_cast<HANDLE>(v_threadPool.at(index).worker.native_handle());
+            if (WaitForSingleObject(g_stopflag, 0) != WAIT_TIMEOUT) {
+                CloseHandle(ableConn);
+                return;
+            }
             v_threadPool.at(index).worker.detach();
             break;
         }
@@ -446,17 +488,28 @@ extern"C" LOG_API void __stdcall Stop() {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     for (auto& thread : v_threadPool) {
-        if (thread.h_piep != nullptr) {
-            CancelIoEx(thread.h_piep, NULL);
-            CloseHandle(thread.h_piep);
-            thread.h_piep = nullptr;
+        if (!thread.t_mtx.try_lock()) {
+            if(thread.h_piep != nullptr){
+                CancelIoEx(thread.h_piep, NULL);
+                WaitForSingleObject(thread.h_thread, INFINITE);
+                CloseHandle(thread.h_piep);
+                thread.h_thread = nullptr;
+                thread.h_piep = nullptr;
+            }
+        }
+        else {
+            thread.t_mtx.unlock();
         }
     }
-    Log.stop();
+    std::stringstream pn;
+    pn << "\\\\.\\pipe\\" << g_sharedLogMode.uuid_pipe;
+    auto tmpp = CreateFileA(pn.str().c_str(), GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    CloseHandle(tmpp);
     for (int i = 0; i < h_threads.size(); i++) {
-        WaitForSingleObject(h_threads.top(), 5000);
+        WaitForSingleObject(h_threads.top(), INFINITE);
         h_threads.pop();
     }
+    Log.stop();
     v_threadPool.clear();
 }
 

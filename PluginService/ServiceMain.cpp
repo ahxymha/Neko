@@ -4,13 +4,214 @@
 #include <Windows.h>
 #include <thread>
 #include "../PluginsMgr/framework.h"
+#include <sddl.h>
+#include <iostream>
+#include <vector>
+
+#pragma comment(lib, "advapi32.lib")
 
 namespace pm = PluginsMgr;
+// 获取完整性级别字符串
+std::wstring GetIntegrityLevelString(PSID pSid) {
+    if (!IsValidSid(pSid)) {
+        return L"Invalid SID";
+    }
+
+    DWORD dwSubAuthorityCount = *GetSidSubAuthorityCount(pSid);
+    if (dwSubAuthorityCount >= 1) {
+        PDWORD pSubAuthority = GetSidSubAuthority(pSid, dwSubAuthorityCount - 1);
+
+        switch (*pSubAuthority) {
+        case SECURITY_MANDATORY_UNTRUSTED_RID:     return L"Untrusted (0)";
+        case SECURITY_MANDATORY_LOW_RID:          return L"Low (4096)";
+        case SECURITY_MANDATORY_MEDIUM_RID:       return L"Medium (8192)";
+        case SECURITY_MANDATORY_MEDIUM_PLUS_RID:  return L"Medium Plus (8448)";
+        case SECURITY_MANDATORY_HIGH_RID:         return L"High (12288)";
+        case SECURITY_MANDATORY_SYSTEM_RID:       return L"System (16384)";
+        case SECURITY_MANDATORY_PROTECTED_PROCESS_RID: return L"Protected Process (20480)";
+        default: {
+            wchar_t buffer[64];
+            swprintf_s(buffer, L"Unknown (%lu)", *pSubAuthority);
+            return buffer;
+        }
+        }
+    }
+    return L"Unknown";
+}
+
+// 获取当前令牌的完整性级别
+std::wstring GetCurrentIntegrityLevel(HANDLE hToken) {
+    DWORD dwLengthNeeded = 0;
+    GetTokenInformation(hToken, TokenIntegrityLevel, nullptr, 0, &dwLengthNeeded);
+
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        return L"无法获取";
+    }
+
+    std::vector<BYTE> buffer(dwLengthNeeded);
+    PTOKEN_MANDATORY_LABEL pTML = (PTOKEN_MANDATORY_LABEL)buffer.data();
+
+    if (GetTokenInformation(hToken, TokenIntegrityLevel, pTML, dwLengthNeeded, &dwLengthNeeded)) {
+        return GetIntegrityLevelString(pTML->Label.Sid);
+    }
+
+    return L"获取失败";
+}
+
+// 将令牌降级为指定的完整性级别
+HANDLE DemoteTokenToIntegrityLevel(HANDLE hOriginalToken, DWORD integrityLevelRid) {
+    HANDLE hNewToken = nullptr;
+
+    // 1. 复制令牌
+    if (!DuplicateTokenEx(hOriginalToken,
+        TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT | TOKEN_QUERY |
+        TOKEN_ADJUST_SESSIONID | TOKEN_ASSIGN_PRIMARY,
+        nullptr,
+        SecurityImpersonation,
+        TokenPrimary,
+        &hNewToken)) {
+        std::wcerr << L"令牌复制失败: " << GetLastError() << std::endl;
+        return nullptr;
+    }
+
+    // 2. 设置完整性级别
+    TOKEN_MANDATORY_LABEL tml = { 0 };
+    SID_IDENTIFIER_AUTHORITY SIDAuth = SECURITY_MANDATORY_LABEL_AUTHORITY;
+
+    if (AllocateAndInitializeSid(&SIDAuth, 1,
+        integrityLevelRid,
+        0, 0, 0, 0, 0, 0, 0,
+        &tml.Label.Sid)) {
+
+        tml.Label.Attributes = SE_GROUP_INTEGRITY | SE_GROUP_INTEGRITY_ENABLED;
+
+        if (!SetTokenInformation(hNewToken,
+            TokenIntegrityLevel,
+            &tml,
+            sizeof(TOKEN_MANDATORY_LABEL))) {
+            DWORD error = GetLastError();
+            std::wcerr << L"设置完整性级别失败 (RID=" << integrityLevelRid
+                << L"): " << error << std::endl;
+            CloseHandle(hNewToken);
+            FreeSid(tml.Label.Sid);
+            return nullptr;
+        }
+
+        FreeSid(tml.Label.Sid);
+
+        // 3. 移除管理员组（如果存在）
+        PTOKEN_GROUPS pGroups = nullptr;
+        DWORD dwSize = 0;
+
+        // 获取组信息
+        GetTokenInformation(hNewToken, TokenGroups, nullptr, 0, &dwSize);
+        if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+            pGroups = (PTOKEN_GROUPS)malloc(dwSize);
+            if (GetTokenInformation(hNewToken, TokenGroups, pGroups, dwSize, &dwSize)) {
+
+                // 构建要删除的管理员组列表
+                std::vector<SID_AND_ATTRIBUTES> sidsToDelete;
+
+                for (DWORD i = 0; i < pGroups->GroupCount; i++) {
+                    PSID pSid = pGroups->Groups[i].Sid;
+
+                    // 检查是否是管理员组 (S-1-5-32-544)
+                    if (IsValidSid(pSid)) {
+                        PSID_IDENTIFIER_AUTHORITY pAuthority = GetSidIdentifierAuthority(pSid);
+
+                        // 检查是否是NT Authority (S-1-5)
+                        if (pAuthority->Value[0] == 0 &&
+                            pAuthority->Value[1] == 0 &&
+                            pAuthority->Value[2] == 0 &&
+                            pAuthority->Value[3] == 0 &&
+                            pAuthority->Value[4] == 0 &&
+                            pAuthority->Value[5] == 5) {
+
+                            DWORD dwSubAuthorityCount = *GetSidSubAuthorityCount(pSid);
+                            if (dwSubAuthorityCount == 2) {
+                                PDWORD pSubAuthority0 = GetSidSubAuthority(pSid, 0);
+                                PDWORD pSubAuthority1 = GetSidSubAuthority(pSid, 1);
+
+                                if (*pSubAuthority0 == SECURITY_BUILTIN_DOMAIN_RID &&
+                                    *pSubAuthority1 == DOMAIN_ALIAS_RID_ADMINS) {
+
+                                    SID_AND_ATTRIBUTES sidToDelete = { pSid, 0 };
+                                    sidsToDelete.push_back(sidToDelete);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 如果找到了管理员组，创建受限令牌
+                if (!sidsToDelete.empty()) {
+                    HANDLE hRestrictedToken = nullptr;
+
+                    if (CreateRestrictedToken(
+                        hNewToken,
+                        DISABLE_MAX_PRIVILEGE,          // 禁用所有特权
+                        (DWORD)sidsToDelete.size(),     // 要删除的SID数量
+                        sidsToDelete.data(),            // 要删除的SID数组
+                        0, nullptr,                     // 不删除特权
+                        0, nullptr,                     // 不添加受限SID
+                        &hRestrictedToken)) {
+
+                        CloseHandle(hNewToken);
+                        hNewToken = hRestrictedToken;
+                    }
+                }
+            }
+            free(pGroups);
+        }
+
+        // 4. 禁用或移除特权
+        TOKEN_PRIVILEGES tp = { 0 };
+        tp.PrivilegeCount = 0;
+
+        AdjustTokenPrivileges(hNewToken,
+            TRUE,        // 禁用所有特权
+            &tp,
+            0,
+            nullptr,
+            nullptr);
+
+        return hNewToken;
+    }
+
+    CloseHandle(hNewToken);
+    return nullptr;
+}
+
+// 创建Low令牌的便捷函数
+HANDLE CreateLowToken(HANDLE hOriginalToken) {
+    return DemoteTokenToIntegrityLevel(hOriginalToken, SECURITY_MANDATORY_LOW_RID);
+}
+
+PSID GetAdministratorsSid() {
+    PSID pSid = nullptr;
+    SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
+
+    if (AllocateAndInitializeSid(&NtAuthority, 2,
+        SECURITY_BUILTIN_DOMAIN_RID,
+        DOMAIN_ALIAS_RID_ADMINS,
+        0, 0, 0, 0, 0, 0,
+        &pSid)) {
+        return pSid;
+    }
+    return nullptr;
+}
 
 BOOL CreateSandboxEnv(BOOL isMain) {
 	HANDLE sandboxToken = nullptr;
 	HANDLE thisToken = GetCurrentProcessToken();
+    PSID pAdminSid = GetAdministratorsSid();
 
-	CreateRestrictedToken(GetCurrentProcessToken(), DISABLE_MAX_PRIVILEGE, 0, NULL, 0, NULL, 0, NULL, &sandboxToken);
+    if (!pAdminSid) {
+        return false;
+    }
 
+    SID_AND_ATTRIBUTES sidsToDelete = { pAdminSid, 0 };
+	CreateRestrictedToken(GetCurrentProcessToken(), DISABLE_MAX_PRIVILEGE, 1, &sidsToDelete, 0, NULL, 0, NULL, &sandboxToken);
+
+    auto LowSandboxToken = CreateLowToken(sandboxToken);
 }

@@ -353,6 +353,11 @@ int main(int argc, char* argv[]) {
             char ok[] = "日志显示端加载完毕";
             Sendlog(1, ok, 28);
         }
+        std::thread tstLogServer([]() {
+            std::this_thread::sleep_for(std::chrono::seconds(10));
+            SimpleTest();
+            });
+        tstLogServer.detach();
         std::cin.get();
         CleanupLogger(false);
         return 0;
@@ -367,6 +372,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "初始化Logger失败，程序退出!" << std::endl;
             return 1;
         }
+
         
         // 测试1: 简单测试
         SimpleTest();
