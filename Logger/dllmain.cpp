@@ -23,7 +23,6 @@
 #include <vector>
 #include "framework.h"
 #include "method.h"
-#include <vld.h>
 
 #pragma pack(push, 1)
 struct LogMode {
@@ -296,7 +295,7 @@ void PipeServer() {
     SECURITY_ATTRIBUTES la;
     la.nLength = sizeof(SECURITY_ATTRIBUTES);
     la.bInheritHandle = FALSE;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)S:(ML;;NW;;;LW)", SDDL_REVISION_1, &la.lpSecurityDescriptor, NULL)) {
         Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
         return;
     }

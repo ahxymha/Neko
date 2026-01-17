@@ -215,6 +215,29 @@ BOOL CreateSandboxEnv(BOOL isMain) {
 	CreateRestrictedToken(GetCurrentProcessToken(), DISABLE_MAX_PRIVILEGE, 1, &sidsToDelete, 0, NULL, 0, NULL, &sandboxToken);
 
     auto LowSandboxToken = CreateLowToken(sandboxToken);
+    if (LowSandboxToken == nullptr) {
+        return false;
+    }
+
+    STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+    PROCESS_INFORMATION pi = { 0 };
+    wchar_t cmdLine[] = L"cmd.exe";
+    if (!CreateProcessAsUserW(LowSandboxToken,
+        nullptr,
+        cmdLine,
+        nullptr,
+        nullptr,
+        FALSE,
+        0,
+        nullptr,
+        nullptr,
+        &si,
+        &pi)) {
+        return false;
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hThread);
+    return true;
 }
 
 BOOL ElevateToken() {
@@ -249,7 +272,7 @@ BOOL ElevateToken() {
     TOKEN_PRIVILEGES tp;
     tp.PrivilegeCount = 1;
     tp.Privileges[0].Luid = luid;
-    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED; 
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
     if (!AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) {
         CloseHandle(hToken);
         return FALSE;
@@ -303,9 +326,19 @@ BOOL ElevateToken() {
         CloseHandle(hToken);
         return FALSE;
     }
+    if (!AdjustTokenPrivileges(lsassPTK, FALSE, &tp1, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) {
+        CloseHandle(lsassPTK);
+        CloseHandle(lsassDPTK);
+        CloseHandle(lsassTK);
+        CloseHandle(lsassPC);
+        CloseHandle(hToken);
+        return FALSE;
+    }
     STARTUPINFOW si = { sizeof(STARTUPINFOW) };
     PROCESS_INFORMATION pi = { 0 };
-    wchar_t cmdLine[] = L"cmd.exe";
+    wchar_t cmdLine[MAX_PATH] = {};
+    GetModuleFileName(NULL, cmdLine, MAX_PATH);
+    wcscat_s(cmdLine, MAX_PATH, L" elevated");
     if (!CreateProcessAsUserW(lsassPTK,
         nullptr,
         cmdLine,
@@ -324,5 +357,7 @@ BOOL ElevateToken() {
         CloseHandle(hToken);
         return FALSE;
     }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hThread);
     return TRUE;
 }
