@@ -6,10 +6,12 @@
 #pragma comment(lib, "advapi32.lib")
 #include <sddl.h>
 #include <iostream>
+#include <wtsapi32.h>
 #include <vector>
 #include <TlHelp32.h>
 
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "wtsapi32.lib")
 
 // 获取完整性级别字符串
 std::wstring GetIntegrityLevelString(PSID pSid) {
@@ -204,21 +206,29 @@ PSID GetAdministratorsSid() {
 BOOL CreateSandboxEnv(BOOL isMain) {
     HANDLE sandboxToken = nullptr;
     HANDLE thisToken = nullptr;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &thisToken)) {
-        std::wcerr << "OpenProcessToken ERROR" << GetLastError() << std::endl;
+    DWORD sessionId = WTSGetActiveConsoleSessionId();
+    //if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &thisToken)) {
+    //    std::wcerr << "OpenProcessToken ERROR" << GetLastError() << std::endl;
+    //    return false;
+    //}
+    if (!WTSQueryUserToken(sessionId, &thisToken)) {
+        std::wcerr << "WTSQueryUserToken ERROR" << GetLastError() << std::endl;
         return false;
     }
     PSID pAdminSid = GetAdministratorsSid();
 
     if (!pAdminSid) {
+        CloseHandle(thisToken);
         return false;
     }
 
     SID_AND_ATTRIBUTES sidsToDelete = { pAdminSid, 0 };
     if (!CreateRestrictedToken(thisToken, DISABLE_MAX_PRIVILEGE, 1, &sidsToDelete, 0, NULL, 0, NULL, &sandboxToken)) {
         std::wcerr << " CreateRestrictedToken ERROR" << GetLastError() << std::endl;
+        CloseHandle(thisToken);
         return false;
     }
+    CloseHandle(thisToken);
     auto LowSandboxToken = CreateLowToken(sandboxToken);
     if (LowSandboxToken == nullptr) {
         return false;
@@ -269,6 +279,7 @@ BOOL CreateSandboxEnv(BOOL isMain) {
     std::wcout << L"作业对象创建成功，最多允许 " << 2 << L" 个子进程" << std::endl;
     if (!AssignProcessToJobObject(m_hJob, pi.hProcess)) {
         std::cerr << "分配进程到作业对象失败! 错误代码: " << GetLastError() << std::endl;
+        TerminateProcess(pi.hProcess, -254);
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
         return false;

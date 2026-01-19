@@ -470,6 +470,42 @@ extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len) {
     return;
 }
 
+LOG_API void __stdcall SendlogPP(short level, std::string log) {
+    while (g_sharedLogMode.flag != 2) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    char flag = '\0';
+    switch (level) {
+    case 0: {
+        flag = 'D';
+        break;
+    }
+    case 1: {
+        flag = 'I';
+        break;
+    }
+    case 2: {
+        flag = 'W';
+        break;
+    }
+    case 3: {
+        flag = 'E';
+        break;
+    }
+    case 4: {
+        flag = 'P';
+        generateDump();
+        break;
+    }
+    }
+    DWORD processId = GetCurrentProcessId();
+    std::stringstream logc;
+
+    logc << flag << "<PID:" << std::to_string(processId) << "> " << log;
+    thisProcessLogQueue.push(logc.str());
+    return;
+}
+
 extern"C" LOG_API void __stdcall Stop() {
     DWORD processId = GetCurrentProcessId();
     if (g_sharedLogMode.flag != 2) {

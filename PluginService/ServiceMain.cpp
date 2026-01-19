@@ -1,17 +1,25 @@
-#include<MemoryModule.h>
-#include<detours/detours.h>
-#include"../Logger/framework.h"
 #include <Windows.h>
 #include <thread>
-#include "../PluginsMgr/framework.h"
-#include <sddl.h>
-#include <iostream>
-#include <vector>
 #include <TlHelp32.h>
+#include <string>
 
 #pragma comment(lib, "advapi32.lib")
+#include <sddl.h>
+#include <detours/detours.h>
+#include <iostream>
+#include <wtsapi32.h>
+#include <vector>
+#include <TlHelp32.h>
+#include "../Logger/framework.h"
 
-namespace pm = PluginsMgr;
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "wtsapi32.lib")
+
+struct CommunicationPipe {
+    HANDLE h_IN = nullptr;
+    HANDLE h_out = nullptr;
+};
+
 // 获取完整性级别字符串
 std::wstring GetIntegrityLevelString(PSID pSid) {
     if (!IsValidSid(pSid)) {
@@ -203,38 +211,104 @@ PSID GetAdministratorsSid() {
 }
 
 BOOL CreateSandboxEnv(BOOL isMain) {
-	HANDLE sandboxToken = nullptr;
-	HANDLE thisToken = GetCurrentProcessToken();
+    HANDLE sandboxToken = nullptr;
+    HANDLE thisToken = nullptr;
+    DWORD sessionId = WTSGetActiveConsoleSessionId();
+    //if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &thisToken)) {
+    //    std::wcerr << "OpenProcessToken ERROR" << GetLastError() << std::endl;
+    //    return false;
+    //}
+    if (!WTSQueryUserToken(sessionId, &thisToken)) {
+        std::wcerr << "WTSQueryUserToken ERROR" << GetLastError() << std::endl;
+        return false;
+    }
     PSID pAdminSid = GetAdministratorsSid();
 
     if (!pAdminSid) {
+        CloseHandle(thisToken);
         return false;
     }
 
     SID_AND_ATTRIBUTES sidsToDelete = { pAdminSid, 0 };
-	CreateRestrictedToken(GetCurrentProcessToken(), DISABLE_MAX_PRIVILEGE, 1, &sidsToDelete, 0, NULL, 0, NULL, &sandboxToken);
-
+    if (!CreateRestrictedToken(thisToken, DISABLE_MAX_PRIVILEGE, 1, &sidsToDelete, 0, NULL, 0, NULL, &sandboxToken)) {
+        std::wcerr << " CreateRestrictedToken ERROR" << GetLastError() << std::endl;
+        CloseHandle(thisToken);
+        return false;
+    }
+    CloseHandle(thisToken);
     auto LowSandboxToken = CreateLowToken(sandboxToken);
     if (LowSandboxToken == nullptr) {
         return false;
     }
-
+    CommunicationPipe cp_host;
+    CommunicationPipe cp_client;
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)S:(ML;;NW;;;LW)", SDDL_REVISION_1, &sa.lpSecurityDescriptor, NULL)) {
+        //Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
+        return;
+    }
+    CreatePipe(&cp_host.h_IN, &cp_client.h_out, &sa, 65535);
+    CreatePipe(&cp_host.h_out, &cp_client.h_IN, &sa, 65535);
     STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+    si.hStdInput = cp_client.h_IN;
+    si.hStdError = cp_client.h_out;
+    si.hStdOutput = cp_client.h_out;
     PROCESS_INFORMATION pi = { 0 };
-    wchar_t cmdLine[] = L"cmd.exe";
+    wchar_t cmdLine[MAX_PATH];
+    GetModuleFileName(NULL, cmdLine, MAX_PATH);
+    wcscat_s(cmdLine, MAX_PATH, L" Plgloader");
     if (!CreateProcessAsUserW(LowSandboxToken,
         nullptr,
         cmdLine,
         nullptr,
         nullptr,
         FALSE,
-        0,
+        CREATE_SUSPENDED,
         nullptr,
         nullptr,
         &si,
         &pi)) {
         return false;
     }
+    CloseHandle(cp_client.h_IN);
+    CloseHandle(cp_client.h_out);
+    auto m_hJob = CreateJobObjectW(nullptr, nullptr);
+    if (!m_hJob) {
+        std::cerr << "创建作业对象失败! 错误代码: " << GetLastError() << std::endl;
+        return false;
+    }
+
+    // 2. 设置基本限制信息
+    JOBOBJECT_BASIC_LIMIT_INFORMATION basicLimit = { 0 };
+    basicLimit.LimitFlags = JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+    basicLimit.ActiveProcessLimit = 2;  // 限制活动进程数量
+
+    // 3. 设置扩展限制信息（可选，用于更精细的控制）
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION extendedLimit = { 0 };
+    extendedLimit.BasicLimitInformation = basicLimit;
+
+    // 4. 将限制应用到作业对象
+    if (!SetInformationJobObject(m_hJob,
+        JobObjectExtendedLimitInformation,
+        &extendedLimit,
+        sizeof(extendedLimit))) {
+        std::cerr << "设置作业对象限制失败! 错误代码: " << GetLastError() << std::endl;
+        CloseHandle(m_hJob);
+        m_hJob = nullptr;
+        return false;
+    }
+
+    std::wcout << L"作业对象创建成功，最多允许 " << 2 << L" 个子进程" << std::endl;
+    if (!AssignProcessToJobObject(m_hJob, pi.hProcess)) {
+        std::cerr << "分配进程到作业对象失败! 错误代码: " << GetLastError() << std::endl;
+        TerminateProcess(pi.hProcess, -254);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        return false;
+    }
+    ResumeThread(pi.hThread);
     WaitForSingleObject(pi.hProcess, INFINITE);
     CloseHandle(pi.hThread);
     return true;
@@ -318,46 +392,22 @@ BOOL ElevateToken() {
         CloseHandle(hToken);
         return FALSE;
     }
-    HANDLE lsassPTK = nullptr;
-    if (!DuplicateTokenEx(lsassTK, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenImpersonation, &lsassPTK)) {
-        CloseHandle(lsassDPTK);
-        CloseHandle(lsassTK);
-        CloseHandle(lsassPC);
-        CloseHandle(hToken);
-        return FALSE;
-    }
-    if (!AdjustTokenPrivileges(lsassPTK, FALSE, &tp1, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) {
-        CloseHandle(lsassPTK);
-        CloseHandle(lsassDPTK);
-        CloseHandle(lsassTK);
-        CloseHandle(lsassPC);
-        CloseHandle(hToken);
-        return FALSE;
-    }
-    STARTUPINFOW si = { sizeof(STARTUPINFOW) };
-    PROCESS_INFORMATION pi = { 0 };
-    wchar_t cmdLine[MAX_PATH] = {};
-    GetModuleFileName(NULL, cmdLine, MAX_PATH);
-    wcscat_s(cmdLine, MAX_PATH, L" elevated");
-    if (!CreateProcessAsUserW(lsassPTK,
-        nullptr,
-        cmdLine,
-        nullptr,
-        nullptr,
-        FALSE,
-        0,
-        nullptr,
-        nullptr,
-        &si,
-        &pi)) {
-        CloseHandle(lsassPTK);
-        CloseHandle(lsassDPTK);
-        CloseHandle(lsassTK);
-        CloseHandle(lsassPC);
-        CloseHandle(hToken);
-        return FALSE;
-    }
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    CloseHandle(pi.hThread);
+    CreateSandboxEnv(true);
     return TRUE;
+}
+
+void PluginMain(std::string path) {
+    
+}
+
+int main(int argc, char* argv[]) {
+    SetConsoleCP(65001);
+    if (argc > 1) {
+        std::string flag(argv[1]);
+        if (flag == "loader") {
+            PluginMain("");
+            return 0;
+        }
+    }
+    ElevateToken();
 }
