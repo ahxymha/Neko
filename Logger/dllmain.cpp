@@ -90,6 +90,9 @@ struct LogThread {
         if (!other.t_mtx.try_lock()) {
             throw std::runtime_error("Other thread is running");
         }
+        else {
+            t_mtx.unlock();
+        }
         other.h_thread = nullptr;
         other.h_piep = nullptr;
         other.avalibale = false;
@@ -99,6 +102,9 @@ struct LogThread {
         if (this != &other) {
             if (!other.t_mtx.try_lock()) {
                 throw std::runtime_error("Other thread is running");
+            }
+            else {
+                t_mtx.unlock();
             }
             index = other.index;
             worker = std::move(other.worker);

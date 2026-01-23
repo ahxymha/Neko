@@ -137,6 +137,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
+    <ClInclude Include="framework.hpp" />
     <ClInclude Include="method.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>

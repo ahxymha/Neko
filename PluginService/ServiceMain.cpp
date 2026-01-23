@@ -2,15 +2,14 @@
 #include <thread>
 #include <TlHelp32.h>
 #include <string>
-
-#pragma comment(lib, "advapi32.lib")
 #include <sddl.h>
 #include <detours/detours.h>
 #include <iostream>
 #include <wtsapi32.h>
 #include <vector>
-#include <TlHelp32.h>
-#include "../Logger/framework.h"
+#include "../Logger/framework.hpp"
+#include <mutex>
+#include <sstream>
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "wtsapi32.lib")
@@ -18,6 +17,64 @@
 struct CommunicationPipe {
     HANDLE h_IN = nullptr;
     HANDLE h_out = nullptr;
+    CommunicationPipe() = default;
+    CommunicationPipe(CommunicationPipe&& other) {
+        h_IN = other.h_IN;
+        h_out = other.h_out;
+        other.h_IN = nullptr;
+        other.h_out = nullptr;
+    }
+    CommunicationPipe& operator=(CommunicationPipe&& other) {
+        if (this != &other) {
+            h_IN = other.h_IN;
+            h_out = other.h_out;
+            other.h_IN = nullptr;
+            other.h_out = nullptr;
+        }
+        return *this;
+    }
+    CommunicationPipe(const CommunicationPipe&) = delete;
+    CommunicationPipe& operator=(const CommunicationPipe&) = delete;
+};
+
+class Host {
+private:
+    CommunicationPipe cp;
+    std::thread Worker;
+    std::mutex mtx;
+    HANDLE h_stop;
+    struct Call {
+        enum Provider {
+            ConfigMgr,
+            PluginMgr,
+            Custom
+        }pvd;
+        std::string callName;
+    };
+    std::atomic<bool> running;
+    std::vector<Call> calllist;
+
+    void WorkerThread() {
+        while (WaitForSingleObject(h_stop, 0) == WAIT_TIMEOUT) {
+            std::unique_ptr<char> buf(new char[65537]);
+            DWORD rd;
+            if (!ReadFile(cp.h_IN, buf.get(), 65536, &rd, NULL)) {
+                LogClient::error() << "ReadFile Error:" << GetLastError() << std::endl;
+                return;
+            }
+            if (rd == 0) {
+                LogClient::error() << "ReadFile Error:" << GetLastError() << std::endl;
+                return;
+            }
+            
+        }
+    }
+public:
+    bool SetCommunicationPipe(CommunicationPipe& ocp) {
+        cp = std::move(ocp);
+        return true;
+    }
+
 };
 
 // 获取完整性级别字符串
@@ -79,7 +136,7 @@ HANDLE DemoteTokenToIntegrityLevel(HANDLE hOriginalToken, DWORD integrityLevelRi
         SecurityImpersonation,
         TokenPrimary,
         &hNewToken)) {
-        std::wcerr << L"令牌复制失败: " << GetLastError() << std::endl;
+        LogClient::error() << L"令牌复制失败: " << GetLastError() << std::endl;
         return nullptr;
     }
 
@@ -99,7 +156,7 @@ HANDLE DemoteTokenToIntegrityLevel(HANDLE hOriginalToken, DWORD integrityLevelRi
             &tml,
             sizeof(TOKEN_MANDATORY_LABEL))) {
             DWORD error = GetLastError();
-            std::wcerr << L"设置完整性级别失败 (RID=" << integrityLevelRid
+            LogClient::error() << L"设置完整性级别失败 (RID=" << integrityLevelRid
                 << L"): " << error << std::endl;
             CloseHandle(hNewToken);
             FreeSid(tml.Label.Sid);
@@ -210,110 +267,6 @@ PSID GetAdministratorsSid() {
     return nullptr;
 }
 
-BOOL CreateSandboxEnv(BOOL isMain) {
-    HANDLE sandboxToken = nullptr;
-    HANDLE thisToken = nullptr;
-    DWORD sessionId = WTSGetActiveConsoleSessionId();
-    //if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &thisToken)) {
-    //    std::wcerr << "OpenProcessToken ERROR" << GetLastError() << std::endl;
-    //    return false;
-    //}
-    if (!WTSQueryUserToken(sessionId, &thisToken)) {
-        std::wcerr << "WTSQueryUserToken ERROR" << GetLastError() << std::endl;
-        return false;
-    }
-    PSID pAdminSid = GetAdministratorsSid();
-
-    if (!pAdminSid) {
-        CloseHandle(thisToken);
-        return false;
-    }
-
-    SID_AND_ATTRIBUTES sidsToDelete = { pAdminSid, 0 };
-    if (!CreateRestrictedToken(thisToken, DISABLE_MAX_PRIVILEGE, 1, &sidsToDelete, 0, NULL, 0, NULL, &sandboxToken)) {
-        std::wcerr << " CreateRestrictedToken ERROR" << GetLastError() << std::endl;
-        CloseHandle(thisToken);
-        return false;
-    }
-    CloseHandle(thisToken);
-    auto LowSandboxToken = CreateLowToken(sandboxToken);
-    if (LowSandboxToken == nullptr) {
-        return false;
-    }
-    CommunicationPipe cp_host;
-    CommunicationPipe cp_client;
-    SECURITY_ATTRIBUTES sa;
-    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-    sa.bInheritHandle = TRUE;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)S:(ML;;NW;;;LW)", SDDL_REVISION_1, &sa.lpSecurityDescriptor, NULL)) {
-        //Log.error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
-        return;
-    }
-    CreatePipe(&cp_host.h_IN, &cp_client.h_out, &sa, 65535);
-    CreatePipe(&cp_host.h_out, &cp_client.h_IN, &sa, 65535);
-    STARTUPINFOW si = { sizeof(STARTUPINFOW) };
-    si.hStdInput = cp_client.h_IN;
-    si.hStdError = cp_client.h_out;
-    si.hStdOutput = cp_client.h_out;
-    PROCESS_INFORMATION pi = { 0 };
-    wchar_t cmdLine[MAX_PATH];
-    GetModuleFileName(NULL, cmdLine, MAX_PATH);
-    wcscat_s(cmdLine, MAX_PATH, L" Plgloader");
-    if (!CreateProcessAsUserW(LowSandboxToken,
-        nullptr,
-        cmdLine,
-        nullptr,
-        nullptr,
-        FALSE,
-        CREATE_SUSPENDED,
-        nullptr,
-        nullptr,
-        &si,
-        &pi)) {
-        return false;
-    }
-    CloseHandle(cp_client.h_IN);
-    CloseHandle(cp_client.h_out);
-    auto m_hJob = CreateJobObjectW(nullptr, nullptr);
-    if (!m_hJob) {
-        std::cerr << "创建作业对象失败! 错误代码: " << GetLastError() << std::endl;
-        return false;
-    }
-
-    // 2. 设置基本限制信息
-    JOBOBJECT_BASIC_LIMIT_INFORMATION basicLimit = { 0 };
-    basicLimit.LimitFlags = JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
-    basicLimit.ActiveProcessLimit = 2;  // 限制活动进程数量
-
-    // 3. 设置扩展限制信息（可选，用于更精细的控制）
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION extendedLimit = { 0 };
-    extendedLimit.BasicLimitInformation = basicLimit;
-
-    // 4. 将限制应用到作业对象
-    if (!SetInformationJobObject(m_hJob,
-        JobObjectExtendedLimitInformation,
-        &extendedLimit,
-        sizeof(extendedLimit))) {
-        std::cerr << "设置作业对象限制失败! 错误代码: " << GetLastError() << std::endl;
-        CloseHandle(m_hJob);
-        m_hJob = nullptr;
-        return false;
-    }
-
-    std::wcout << L"作业对象创建成功，最多允许 " << 2 << L" 个子进程" << std::endl;
-    if (!AssignProcessToJobObject(m_hJob, pi.hProcess)) {
-        std::cerr << "分配进程到作业对象失败! 错误代码: " << GetLastError() << std::endl;
-        TerminateProcess(pi.hProcess, -254);
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-        return false;
-    }
-    ResumeThread(pi.hThread);
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    CloseHandle(pi.hThread);
-    return true;
-}
-
 BOOL ElevateToken() {
     DWORD pid = NULL;
     HANDLE l_processes = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
@@ -392,12 +345,179 @@ BOOL ElevateToken() {
         CloseHandle(hToken);
         return FALSE;
     }
-    CreateSandboxEnv(true);
     return TRUE;
 }
 
+BOOL CreateSandboxEnv(BOOL isMain) {
+    HANDLE sandboxToken = nullptr;
+    HANDLE thisToken = nullptr;
+    DWORD sessionId = WTSGetActiveConsoleSessionId();
+    //if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &thisToken)) {
+    //    std::wcerr << "OpenProcessToken ERROR" << GetLastError() << std::endl;
+    //    return false;
+    //}
+    if (!WTSQueryUserToken(sessionId, &thisToken)) {
+        LogClient::error() << "WTSQueryUserToken ERROR" << GetLastError() << std::endl;
+        return false;
+    }
+    PSID pAdminSid = GetAdministratorsSid();
+
+    if (!pAdminSid) {
+        CloseHandle(thisToken);
+        return false;
+    }
+
+    SID_AND_ATTRIBUTES sidsToDelete = { pAdminSid, 0 };
+    if (!CreateRestrictedToken(thisToken, DISABLE_MAX_PRIVILEGE, 1, &sidsToDelete, 0, NULL, 0, NULL, &sandboxToken)) {
+        SendlogPP(3, []()->std::string {
+            std::stringstream log;
+            log << " CreateRestrictedToken ERROR" << GetLastError();
+            return log.str();
+            }());
+        CloseHandle(thisToken);
+        return false;
+    }
+    CloseHandle(thisToken);
+    auto LowSandboxToken = CreateLowToken(sandboxToken);
+    if (LowSandboxToken == nullptr) {
+        return false;
+    }
+    CommunicationPipe cp_host;
+    CommunicationPipe cp_client;
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)S:(ML;;NW;;;LW)", SDDL_REVISION_1, &sa.lpSecurityDescriptor, NULL)) {
+        LogClient::error() << "ConvertStringSecurityDescriptorToSecurityDescriptor ERROR:" << GetLastError() << std::endl;
+    }
+    CreatePipe(&cp_host.h_IN, &cp_client.h_out, &sa, 65536);
+    CreatePipe(&cp_host.h_out, &cp_client.h_IN, &sa, 65536);
+    STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+    si.hStdInput = cp_client.h_IN;
+    si.hStdError = cp_client.h_out;
+    si.hStdOutput = cp_client.h_out;
+    PROCESS_INFORMATION pi = { 0 };
+    wchar_t cmdLine[MAX_PATH];
+    GetModuleFileName(NULL, cmdLine, MAX_PATH);
+    wcscat_s(cmdLine, MAX_PATH, L" Plgloader");
+    if (!CreateProcessAsUserW(LowSandboxToken,
+        nullptr,
+        cmdLine,
+        nullptr,
+        nullptr,
+        FALSE,
+        CREATE_SUSPENDED,
+        nullptr,
+        nullptr,
+        &si,
+        &pi)) {
+        return false;
+    }
+    CloseHandle(cp_client.h_IN);
+    CloseHandle(cp_client.h_out);
+    auto m_hJob = CreateJobObjectW(nullptr, nullptr);
+    if (!m_hJob) {
+        LogClient::error() << "创建作业对象失败! 错误代码: " << GetLastError() << std::endl;
+        return false;
+    }
+
+    // 2. 设置基本限制信息
+    JOBOBJECT_BASIC_LIMIT_INFORMATION basicLimit = { 0 };
+    basicLimit.LimitFlags = JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+    basicLimit.ActiveProcessLimit = 4;  // 限制活动进程数量
+
+    // 3. 设置扩展限制信息（可选，用于更精细的控制）
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION extendedLimit = { 0 };
+    extendedLimit.BasicLimitInformation = basicLimit;
+
+    // 4. 将限制应用到作业对象
+    if (!SetInformationJobObject(m_hJob,
+        JobObjectExtendedLimitInformation,
+        &extendedLimit,
+        sizeof(extendedLimit))) {
+        LogClient::error() << "设置作业对象限制失败! 错误代码: " << GetLastError() << std::endl;
+        CloseHandle(m_hJob);
+        m_hJob = nullptr;
+        return false;
+    }
+
+    std::wcout << L"作业对象创建成功，最多允许 " << basicLimit.ActiveProcessLimit << L" 个子进程" << std::endl;
+    if (!AssignProcessToJobObject(m_hJob, pi.hProcess)) {
+        LogClient::error() << "分配进程到作业对象失败! 错误代码: " << GetLastError() << std::endl;
+        TerminateProcess(pi.hProcess, -254);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        return false;
+    }
+    ResumeThread(pi.hThread);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hThread);
+    return true;
+}
+
+std::vector<std::string> allowDllListA;
+std::vector<std::wstring> allowDllListW;
+
+static HMODULE(WINAPI* RealLoadLibraryW)(LPCWSTR) = LoadLibraryW;
+static HMODULE(WINAPI* RealLoadLibraryA)(LPCSTR) = LoadLibraryA;
+
+static HMODULE WINAPI HookLoadLibraryW(LPCWSTR lpLibFileName)
+{
+    if (!lpLibFileName) {
+        return RealLoadLibraryW(lpLibFileName);
+    }
+
+    std::wstring dllName = lpLibFileName;
+    bool allow = false;
+
+    for (const auto& allowed : allowDllListW) {
+        if (_wcsicmp(dllName.c_str(), allowed.c_str()) == 0) {
+            allow = true;
+            break;
+        }
+    }
+
+    if (!allow) {
+        SetLastError(ERROR_ACCESS_DENIED);  // 0x5
+        return nullptr;
+    }
+
+    return RealLoadLibraryW(lpLibFileName);
+}
+
+static HMODULE WINAPI HookLoadLibraryA(LPCSTR lpLibFileName)
+{
+    if (!lpLibFileName) {
+        return RealLoadLibraryA(lpLibFileName);
+    }
+
+    std::string dllName = lpLibFileName;
+    bool allow = false;
+
+    for (const auto& allowed : allowDllListA) {
+        if (_stricmp(dllName.c_str(), allowed.c_str()) == 0) {
+            allow = true;
+            break;
+        }
+    }
+
+    if (!allow) {
+        SetLastError(ERROR_ACCESS_DENIED);
+        return nullptr;
+    }
+
+    return RealLoadLibraryA(lpLibFileName);
+}
+
 void PluginMain(std::string path) {
-    
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID&)RealLoadLibraryW, HookLoadLibraryW);
+    DetourAttach(&(PVOID&)RealLoadLibraryA, HookLoadLibraryA);
+    DetourTransactionCommit();
+
+
+
 }
 
 int main(int argc, char* argv[]) {
