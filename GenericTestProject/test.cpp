@@ -5,6 +5,7 @@
 
 #pragma comment(lib, "advapi32.lib")
 #include <sddl.h>
+#include <sqlite3.h>
 #include <iostream>
 #include <wtsapi32.h>
 #include <vector>
@@ -372,7 +373,21 @@ BOOL ElevateToken() {
     return TRUE;
 }
 
+static int callback(void* NotUsed, int argc, char** argv, char** azColName) {
+
+}
+
 int main(int argc,char *argv[]) {    
+    sqlite3 *db;
+    if(sqlite3_open("test.db",&db)){
+        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+    else {
+        std::cout << "OK" << std::endl;
+    }
+    auto sql="CREATE TABLE FUNCS"
+
     SetConsoleCP(65001);
     ElevateToken();
 }

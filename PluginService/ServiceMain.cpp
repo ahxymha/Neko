@@ -4,6 +4,7 @@
 #include <string>
 #include <sddl.h>
 #include <detours/detours.h>
+#include<sqlite3.h>
 #include <iostream>
 #include <wtsapi32.h>
 #include <vector>
@@ -13,6 +14,8 @@
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "wtsapi32.lib")
+#pragma comment(lib, "sqlite3.lib")
+#pragma comment(lib, "detours.lib")
 
 struct CommunicationPipe {
     HANDLE h_IN = nullptr;
@@ -455,8 +458,8 @@ BOOL CreateSandboxEnv(BOOL isMain) {
     return true;
 }
 
-std::vector<std::string> allowDllListA;
-std::vector<std::wstring> allowDllListW;
+std::vector<std::string> allowPlgListA;
+std::vector<std::wstring> allowPlgListW;
 
 static HMODULE(WINAPI* RealLoadLibraryW)(LPCWSTR) = LoadLibraryW;
 static HMODULE(WINAPI* RealLoadLibraryA)(LPCSTR) = LoadLibraryA;
@@ -470,7 +473,7 @@ static HMODULE WINAPI HookLoadLibraryW(LPCWSTR lpLibFileName)
     std::wstring dllName = lpLibFileName;
     bool allow = false;
 
-    for (const auto& allowed : allowDllListW) {
+    for (const auto& allowed : allowPlgListW) {
         if (_wcsicmp(dllName.c_str(), allowed.c_str()) == 0) {
             allow = true;
             break;
@@ -494,7 +497,7 @@ static HMODULE WINAPI HookLoadLibraryA(LPCSTR lpLibFileName)
     std::string dllName = lpLibFileName;
     bool allow = false;
 
-    for (const auto& allowed : allowDllListA) {
+    for (const auto& allowed : allowPlgListA) {
         if (_stricmp(dllName.c_str(), allowed.c_str()) == 0) {
             allow = true;
             break;

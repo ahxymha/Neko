@@ -2,7 +2,8 @@
   "name": "nkservice",
   "version": "1.0.0",
   "dependencies": [
+    "detours",
     "memorymodule",
-    "detours"
+    "sqlite3"
   ]
 }
