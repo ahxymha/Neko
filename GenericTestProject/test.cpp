@@ -13,6 +13,7 @@
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "wtsapi32.lib")
+#pragma comment(lib, "sqlite3.lib")
 
 // 获取完整性级别字符串
 std::wstring GetIntegrityLevelString(PSID pSid) {
@@ -374,10 +375,11 @@ BOOL ElevateToken() {
 }
 
 static int callback(void* NotUsed, int argc, char** argv, char** azColName) {
-
+    return 0;
 }
 
 int main(int argc,char *argv[]) {    
+    SetConsoleCP(65001);
     sqlite3 *db;
     if(sqlite3_open("test.db",&db)){
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
@@ -386,8 +388,56 @@ int main(int argc,char *argv[]) {
     else {
         std::cout << "OK" << std::endl;
     }
-    auto sql="CREATE TABLE FUNCS"
-
-    SetConsoleCP(65001);
+    std::string sql = u8"CREATE TABLE IF NOT EXISTS PLGFUNCL("\
+        "ID INT PRIMARY KEY NOT NULL,"\
+        "PLG TEXT NOT NULL,"\
+        "FUNCN TEXT NOT NULL);";
+    std::unique_ptr<char*> errmsg(nullptr);
+    if (sqlite3_exec(db, sql.c_str(), callback, NULL, NULL) != SQLITE_OK) {
+        fprintf(stderr, "Can't create table: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare(db, "SELECT COUNT(*) FROM PLGFUNCL", -1, &stmt, NULL) != SQLITE_OK) {
+        fprintf(stderr, "Can't count table: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+    int count = 0;
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        fprintf(stderr, "Can't count table: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+    count = sqlite3_column_int(stmt, 0);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        fprintf(stderr, "Can't count table: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+    //for (int i = count; i < count + 8000; i++) {
+    //    sql = u8"INSERT INTO PLGFUNCL VALUES (" + std::to_string(i) + ", \'test" + std::to_string(i) + "\', \'test" + std::to_string(i) + "\'); ";
+    //    if (sqlite3_exec(db, sql.c_str(), callback, NULL, NULL) != SQLITE_OK) {
+    //        fprintf(stderr, "Can't write table: %s\n", sqlite3_errmsg(db));
+    //        return -1;
+    //    }
+    //}
+    std::srand(std::time(nullptr));
+    sql = "SELECT * FROM PLGFUNCL WHERE";
+    for (int i = 0; i < 499; i++) {
+        sql += " PLG = \'test" + std::to_string(std::rand() % 11251 - 1) + "\' OR";
+    }
+    sql += " PLG = \'test" + std::to_string(std::rand() % 11251 - 1) + "\';";
+    if (sqlite3_prepare(db, sql.c_str(), -1, &stmt, NULL) != SQLITE_OK) {
+        fprintf(stderr, "Can't read table: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+    int rc = 0;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        fprintf(stdout, "Data: %d\t%s\t%s\n", sqlite3_column_int(stmt, 0), reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+    }
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "Can't read table: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
     ElevateToken();
 }
