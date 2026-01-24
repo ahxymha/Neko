@@ -371,3 +371,4 @@ FodyWeavers.xsd
 *.manifest
 */.config
 */vcpkg_installed
+*.db
