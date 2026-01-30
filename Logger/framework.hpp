@@ -6,7 +6,7 @@
 
 #define LOG_API __declspec(dllexport) 
 
-LOG_API void SendlogPP(short level, std::string log);
+LOG_API inline void SendlogPP(short level, std::string log);
 
 class LogClient {
 public:

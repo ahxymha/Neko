@@ -476,7 +476,7 @@ extern"C" LOG_API void __stdcall Sendlog(short level, char* log, int len) {
     return;
 }
 
-LOG_API void __stdcall SendlogPP(short level, std::string log) {
+LOG_API inline void __stdcall SendlogPP(short level, std::string log) {
     while (g_sharedLogMode.flag != 2) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }

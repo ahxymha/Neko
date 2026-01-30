@@ -1,0 +1,54 @@
+[
+	uuid(cd75c649-81ed-4680-9980-3856b0c64f62),
+	version(2.0),
+	implicit_handle(handle_t hFileService)
+]
+interface BasicManeger
+{
+	typedef [callback] byte MgrCallback(
+		[in] void* pArg
+	);
+
+	byte Call(
+		[in] const int key,
+		[in, string] const wchar_t* providerPath,
+		[in, string] const char* funcName,
+		[in, out, unique] void* pArg,
+		[in, callback] MgrCallback Callback,
+		[in, unique] void* pContent
+	);
+};
+interface PluginService : MgrCallback {
+	int RequestPrivilege(
+		[in, string] const char* name
+	);
+
+	byte CheckPrivilege(
+		[in] const int key
+	);
+
+	byte GetFileContent(
+		[in] const int key,
+		[in, string] const wchar_t* path,
+		[in] long size,
+		[out, size_is(size)] byte data[]
+	);
+
+	byte IsFileExist(
+		[in] const int key,
+		[in, string] const wchar_t* path
+	);
+
+	byte SetFileContent(
+		[in] const int key,
+		[in, string] const wchar_t* path,
+		[in] long size,
+		[in, size_is(size)] byte data[]
+	);
+
+	byte SetDirectionListener(
+		[in] const int key,
+		[in, string] const wchar_t* path,
+		[in,callback] Basic
+	)
+};

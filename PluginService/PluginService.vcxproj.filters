@@ -19,4 +19,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <Midl Include="PluginService.idl">
+      <Filter>源文件</Filter>
+    </Midl>
+  </ItemGroup>
 </Project>
