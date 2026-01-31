@@ -143,7 +143,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <Midl Include="PluginService.idl" />
+    <Midl Include="PluginService.idl">
+      <ApplicationConfigurationMode Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ApplicationConfigurationMode>
+    </Midl>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,54 +1,111 @@
+// PluginService.idl - COM接口版本
+import "oaidl.idl";
+import "ocidl.idl";
+
+// 首先定义回调接口
 [
-	uuid(cd75c649-81ed-4680-9980-3856b0c64f62),
-	version(2.0),
-	implicit_handle(handle_t hFileService)
+    object,
+    uuid(435131f1-6add-4cc0-bd83-56347e8f897b),
+    pointer_default(unique)
 ]
-interface BasicManeger
+interface IBasicCallback : IUnknown
 {
-	typedef [callback] byte MgrCallback(
-		[in] void* pArg
-	);
+    HRESULT OnCallback(
+        [in] unsigned int size,
+        [in, size_is(size)] byte pArg[]
+    );
+}
 
-	byte Call(
-		[in] const int key,
-		[in, string] const wchar_t* providerPath,
-		[in, string] const char* funcName,
-		[in, out, unique] void* pArg,
-		[in, callback] MgrCallback Callback,
-		[in, unique] void* pContent
-	);
+// 主服务接口
+[
+    object,
+    uuid(cd75c649-81ed-4680-9980-3856b0c64f62),
+    pointer_default(unique)
+]
+interface IPluginService : IUnknown
+{
+
+    HRESULT RequestPrivilege(
+        [in] int key,
+        [in] unsigned long name
+    );
+
+    HRESULT CheckPrivilege(
+        [in] int key,
+        [in] unsigned long name
+    );
+
+    HRESULT DeletePrivilege(
+        [in] int key,
+        [in] unsigned long name
+    );
+
+    HRESULT Duplicatekey(
+        [in] int key,
+        [out] int* newkey
+    );
+
+    HRESULT OpenPluginKey(
+        [in, string] const char* plgName,
+        [out] int* key
+    );
+
+    HRESULT GetFileContent(
+        [in] int key,
+        [in, string] const wchar_t* path,
+        [in] long size,
+        [out, size_is(size)] byte* data
+    );
+
+    HRESULT IsFileExist(
+        [in] int key,
+        [in, string] const wchar_t* path
+    );
+
+    HRESULT SetFileContent(
+        [in] int key,
+        [in, string] const wchar_t* path,
+        [in] long size,
+        [in, size_is(size)] const byte* data
+    );
+
+    HRESULT SetDirectionListener(
+        [in] int key,
+        [in, string] const wchar_t* path,
+        [in] IBasicCallback* pCallback
+    );
+
+    HRESULT RebootPlg(
+        [in] int key,
+        [in, string] const char* plgName,
+        [in] int time
+    );
+
+    HRESULT ResetPlg(
+        [in] int key,
+        [in, string] const char* plgName,
+        [in] int time
+    );
+
+    HRESULT DeletePlg(
+        [in] int key,
+        [in, string] const char* plgName,
+        [in] int time
+    );
 };
-interface PluginService : MgrCallback {
-	int RequestPrivilege(
-		[in, string] const char* name
-	);
 
-	byte CheckPrivilege(
-		[in] const int key
-	);
+// 类型库定义
+[
+    uuid(5770b6ac-4f49-4d38-bcc9-02bcefc5b78d),
+    version(2.0),
+    helpstring("PluginService Type Library")
+]
+library PluginServiceLib
+{
+    importlib("stdole2.tlb");
+    importlib("stdole32.tlb");
 
-	byte GetFileContent(
-		[in] const int key,
-		[in, string] const wchar_t* path,
-		[in] long size,
-		[out, size_is(size)] byte data[]
-	);
+    interface IBasicCallback;
+    interface IPluginService;
 
-	byte IsFileExist(
-		[in] const int key,
-		[in, string] const wchar_t* path
-	);
-
-	byte SetFileContent(
-		[in] const int key,
-		[in, string] const wchar_t* path,
-		[in] long size,
-		[in, size_is(size)] byte data[]
-	);
-
-	byte SetDirectionListener(
-		[in] const int key,
-		[in, string] const wchar_t* path,
-		[in,callback] Basic
-	)
-};
+}
