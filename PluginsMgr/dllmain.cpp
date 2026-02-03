@@ -9,8 +9,26 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <MemoryModule.h>
+#include "../Logger/framework.hpp"
 
+#pragma pack(1)
+struct Plugin2Server {
+    DWORD start_pid;                // 启动程序的PID
+    char uuid_pipe[37];             // 命名管道UUID字符串
+    uint8_t flag;                   // 标志位
+    uint64_t checksum;              // 校验和，用于检测损坏
+};
+#pragma pack(pop)
 
+#pragma data_seg(".shared")
+Plugin2Server g_connection_info = {
+    0,
+    "",
+    0,
+    0
+};
+#pragma data_seg()
+#pragma comment(linker, "/SECTION:.shared,RWS")
 
 #pragma comment(lib,"libcrypto.lib")
 #pragma comment(lib,"libssl.lib")
@@ -190,6 +208,77 @@ public:
     }
 };
 
+// 消息队列模板类
+template <typename T>
+class MessageQueue {
+public:
+    void push(const T& msg) {
+        std::unique_lock<std::mutex> lck(_mtx);
+        _queue.push(msg);
+        _cv.notify_one();
+    }
+
+    bool poll(T& msg) {
+        std::unique_lock<std::mutex> lck(_mtx);
+        if (!_queue.empty()) {
+            msg = _queue.front();
+            _queue.pop();
+            return true;
+        }
+        return false;
+    }
+
+    void wait(T& msg) {
+        std::unique_lock<std::mutex> lck(_mtx);
+        while (_queue.empty()) _cv.wait(lck);
+        msg = _queue.front();
+        _queue.pop();
+    }
+
+    void wait(T& msg, HANDLE stop) {
+        std::unique_lock<std::mutex> lck(_mtx);
+        while (_queue.empty()) {
+            _cv.wait_for(lck, std::chrono::milliseconds(100));
+            if (WaitForSingleObject(stop, 0) != WAIT_TIMEOUT) {
+                throw SystemClose();
+            }
+        }
+        msg = _queue.front();
+        _queue.pop();
+    }
+
+    size_t size() {
+        std::unique_lock<std::mutex> lck(_mtx);
+        return _queue.size();
+    }
+
+private:
+    std::queue<T> _queue;
+    std::mutex _mtx;
+    std::condition_variable _cv;
+};
+
+MessageQueue<std::vector<unsigned char>> g_commq;
+HANDLE g_hstop;
+
+static uint64_t CalculateChecksum(const struct Plugin2Server* data) {
+    struct Plugin2Server temp = *data;
+    temp.checksum = 0;
+
+    const uint8_t* bytes = (const uint8_t*)&temp;
+    size_t size = sizeof(struct Plugin2Server);
+
+    uint32_t sum1 = 0;
+    uint32_t sum2 = 0;
+
+    for (size_t i = 0; i < size; i++) {
+        sum1 = (sum1 + bytes[i]) & 0xFFFFFFFF;
+        sum2 = (sum2 + sum1) & 0xFFFFFFFF;
+    }
+
+    // 合并两个32位校验和
+    return ((uint64_t)sum2 << 32) | sum1;
+}
 
 
 namespace pm = ::PluginsMgr;
@@ -328,4 +417,131 @@ HANDLE RunPluginWithoutSandbox(pm::_nkp::_Plg plg,HMEMORYMODULE memLib,pm::Plugi
 
 HANDLE RunPlugin(pm::PluginContent plg) {
     //TODO: Put your Sandbox carete code here.
+}
+
+BOOL IsPlgHost(BOOL &sandbox) {
+    char buffer[256];
+    DWORD length = GetEnvironmentVariableA("PLGHOST", buffer, sizeof(buffer));
+    if (length == 0) {
+        return FALSE;
+    }
+
+    if (length >= sizeof(buffer)) {
+        return FALSE;
+    }
+
+    if (std::string(buffer) == "SANDBOX") {
+        sandbox = TRUE;
+    }
+    else {
+        sandbox = FALSE;
+    }
+
+    return TRUE;
+}
+
+void LSComPlgHost() {
+    if (!g_connection_info.uuid_pipe[0] || !g_connection_info.start_pid || !g_connection_info.checksum) {
+        LogClient::error() << "No connection information" << std::endl;
+        throw std::runtime_error("No connection information");
+    }
+    if (g_connection_info.flag != 2) {
+        LogClient::error() << "Server is not ready to connect" << std::endl;
+        throw std::runtime_error("Server is not ready to connect");
+    }
+    if (CalculateChecksum(&g_connection_info) != g_connection_info.checksum) {
+        LogClient::error() << "Server connection block has been broken" << std::endl;
+        throw std::runtime_error("Server connection block has been broken");
+
+    }
+    std::stringstream s_pipe;
+    s_pipe << "\\\\.\\pipe\\" << g_connection_info.uuid_pipe;
+    std::string m_pipe = std::move(s_pipe.str());
+    HANDLE pipe = CreateFileA(m_pipe.c_str(), GENERIC_READ | GENERIC_WRITE, NULL, NULL, OPEN_EXISTING, NULL, NULL);
+    if (!pipe) {
+        LogClient::error() << "Open communication pipe error,Code:" << GetLastError() << std::endl;
+        throw std::runtime_error("Open communication pipe error");
+    }
+    std::vector<unsigned char> key;
+    key.resize(32);
+    {
+        std::unique_ptr<unsigned char> buffer(new unsigned char[32]);
+        DWORD rn;
+        if (!ReadFile(pipe, buffer.get(), 32, &rn, NULL)) {
+            LogClient::error() << "Request communication key error,Code:" << GetLastError() << std::endl;
+            throw std::runtime_error("Request communication key error");
+        }
+        if (rn != 32) {
+            LogClient::error() << "We successfully dispatched the key request, but the server responded with what can only be described as 'encrypted confusion',Code:" << GetLastError() << std::endl;
+            throw std::runtime_error("We successfully dispatched the key request, but the server responded with what can only be described as 'encrypted confusion'.");
+        }
+        memcpy_s(key.data(), 32, buffer.get(), 32);
+    }
+    AESEncryptor Aes256(key);
+    {
+        DWORD wn;
+        if (!WriteFile(pipe, Aes256.getIV().data(), Aes256.getIV().size(), &wn, NULL)) {
+            LogClient::error() << "Cannot send IV to server,Code:" << GetLastError() << std::endl;
+            throw std::runtime_error("Cannot send IV to server");
+        }
+        if (wn == 0) {
+            LogClient::error() << "Cannot send IV to server,Code:" << GetLastError() << std::endl;
+            throw std::runtime_error("Cannot send IV to server");
+        }
+    }
+    {
+        std::unique_ptr<unsigned char> buffer(new unsigned char[SHA256_DIGEST_LENGTH]);
+        DWORD rn;
+        if (!ReadFile(pipe, buffer.get(), SHA256_DIGEST_LENGTH, &rn, NULL)) {
+            LogClient::error() << "Request communication hash error,Code:" << GetLastError() << std::endl;
+            throw std::runtime_error("Request communication hash error");
+        }
+        if (rn != SHA256_DIGEST_LENGTH) {
+            LogClient::error() << "We successfully dispatched the hash request, but the server responded with what can only be described as 'encrypted confusion',Code:" << GetLastError() << std::endl;
+            throw std::runtime_error("We successfully dispatched the hash request, but the server responded with what can only be described as 'encrypted confusion'.");
+        }
+        std::vector<unsigned char> tmp(Aes256.getIV());
+        key.insert(key.end(), tmp.begin(), tmp.end());
+        tmp.resize(SHA256_DIGEST_LENGTH);
+        SHA256(key.data(), key.size(), tmp.data());
+        std::vector<unsigned char> shash(SHA256_DIGEST_LENGTH);
+        memcpy_s(shash.data(), shash.size(), buffer.get(), SHA256_DIGEST_LENGTH);
+        if (tmp != shash) {
+            LogClient::error() << "Server response hash for key and IV is not match to local" << std::endl;
+            throw std::runtime_error("Server response hash for key and IV is not match to local");
+        }
+    }
+    key.clear();
+    while (WaitForSingleObject(g_hstop, 0) == WAIT_TIMEOUT) {
+        
+    }
+}
+
+BOOL APIENTRY DllMain(HMODULE hModule,
+    DWORD  ul_reason_for_call,
+    LPVOID lpReserved
+)
+{
+    switch (ul_reason_for_call)
+    {
+    case DLL_PROCESS_ATTACH: {
+        g_hstop = CreateEvent(NULL, TRUE, FALSE, NULL);
+        LogClient::debug() << "插件管理器已加载！" << std::endl;
+        BOOL sandbox = FALSE;
+        if (IsPlgHost(sandbox)) {
+            if (sandbox) {
+                
+            }
+        }
+        break;
+    }
+    case DLL_THREAD_ATTACH:
+        break;
+    case DLL_THREAD_DETACH:
+        break;
+    case DLL_PROCESS_DETACH: {
+        break;
+    }
+    }
+    return TRUE;
 }

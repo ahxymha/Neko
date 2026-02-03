@@ -277,8 +277,10 @@ public:
                 }
                 auto now = std::chrono::system_clock::now();
                 auto now_c = std::chrono::system_clock::to_time_t(now);
+                struct tm timeinfo;
+                localtime_s(&timeinfo, &now_c);
                 char timestr[64];
-                ctime_s(timestr, sizeof(timestr), &now_c);
+                strftime(timestr, sizeof(timestr), "%Y-%m-%d %H:%M:%S", &timeinfo);
                 SetConsoleTextAttribute(hConsole, color);
                 std::cout << "[" << sig << "] <" << timestr << "> [" << levelStr << "] " << logEntry.content << std::endl;
                 SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE); // 恢复默认颜色

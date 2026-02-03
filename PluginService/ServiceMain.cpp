@@ -139,7 +139,7 @@ HANDLE DemoteTokenToIntegrityLevel(HANDLE hOriginalToken, DWORD integrityLevelRi
         SecurityImpersonation,
         TokenPrimary,
         &hNewToken)) {
-        LogClient::error() << L"令牌复制失败: " << GetLastError() << std::endl;
+        LogClient::error() << "令牌复制失败: " << GetLastError() << std::endl;
         return nullptr;
     }
 
@@ -159,8 +159,8 @@ HANDLE DemoteTokenToIntegrityLevel(HANDLE hOriginalToken, DWORD integrityLevelRi
             &tml,
             sizeof(TOKEN_MANDATORY_LABEL))) {
             DWORD error = GetLastError();
-            LogClient::error() << L"设置完整性级别失败 (RID=" << integrityLevelRid
-                << L"): " << error << std::endl;
+            LogClient::error() << "设置完整性级别失败 (RID=" << integrityLevelRid
+                << "): " << error << std::endl;
             CloseHandle(hNewToken);
             FreeSid(tml.Label.Sid);
             return nullptr;
@@ -533,4 +533,5 @@ int main(int argc, char* argv[]) {
         }
     }
     ElevateToken();
+    CreateSandboxEnv(true);
 }
