@@ -10,6 +10,7 @@
 #include <openssl/rand.h>
 #include <MemoryModule.h>
 #include "../Logger/framework.hpp"
+#include <thread>
 
 #pragma pack(1)
 struct Plugin2Server {
@@ -240,7 +241,7 @@ public:
         while (_queue.empty()) {
             _cv.wait_for(lck, std::chrono::milliseconds(100));
             if (WaitForSingleObject(stop, 0) != WAIT_TIMEOUT) {
-                throw SystemClose();
+                throw 4;
             }
         }
         msg = _queue.front();
@@ -258,7 +259,8 @@ private:
     std::condition_variable _cv;
 };
 
-MessageQueue<std::vector<unsigned char>> g_commq;
+MessageQueue<std::vector<unsigned char>> g_c2scommq;
+MessageQueue<std::vector<unsigned char>> g_s2ccommq;
 HANDLE g_hstop;
 
 static uint64_t CalculateChecksum(const struct Plugin2Server* data) {
@@ -512,9 +514,86 @@ void LSComPlgHost() {
         }
     }
     key.clear();
-    while (WaitForSingleObject(g_hstop, 0) == WAIT_TIMEOUT) {
-        
-    }
+    LogClient::info() << "Keys exchange done!" << std::endl;
+    auto WritePipe = [&Aes256, &pipe](std::vector<unsigned char>& data, DWORD& wn)->BOOL {
+        std::vector<unsigned char> encryptData = Aes256.encrypt(data);
+        if (encryptData.size() > 65536) {
+            LogClient::error() << "Body is too large";
+            return FALSE;
+        }
+        DWORD sum = 0;
+        do {
+            DWORD wn;
+            if (!WriteFile(pipe, encryptData.data(), encryptData.size(), &wn, NULL)) {
+                LogClient::error() << "Call server error,Code:" << GetLastError();
+                return FALSE;
+            }
+            if (wn == 0) {
+                LogClient::error() << "Call server error,Code:" << GetLastError();
+                return FALSE;
+            }
+            sum += wn;
+        } while (sum != data.size());
+        wn = sum;
+        return TRUE;
+        };
+    auto ReadPipe = [&Aes256, &pipe](std::vector<unsigned char>& data, DWORD& rn)->BOOL {
+        data.clear();
+        data.resize(65536);
+        if (!ReadFile(pipe, data.data(), 65536, &rn, NULL)) {
+            rn = 0;
+            data.clear();
+            if (GetLastError() == ERROR_OPERATION_ABORTED) {
+                return FALSE;
+            }
+            LogClient::error() << "Get data error,Code:" << GetLastError();
+            return FALSE;
+        }
+        if (rn == 0) {
+            data.clear();
+            LogClient::error() << "Get data error,Code:" << GetLastError();
+            return FALSE;
+        }
+        data.resize(rn);
+        return TRUE;
+        };
+    std::thread s2cWorker([&ReadPipe](void)->void {
+        while (WaitForSingleObject(g_hstop, 0) == WAIT_TIMEOUT) {
+            DWORD rn;
+            std::vector<unsigned char> data;
+            if (!ReadPipe(data, rn)) {
+                continue;
+            }
+            if (WaitForSingleObject(g_hstop, 0) != WAIT_TIMEOUT) {
+                break;
+            }
+            g_s2ccommq.push(std::move(data));
+        }
+        });
+    std::thread c2sWorker([&WritePipe](void)->void {
+        while (WaitForSingleObject(g_hstop, 0) == WAIT_TIMEOUT) {
+            DWORD wn;
+            std::vector<unsigned char> data;
+            try {
+                g_c2scommq.wait(data, g_hstop);
+            }
+            catch (int& e) {
+                if (e == 4) {
+                    return;
+                }
+            }
+            if (!WritePipe(data, wn)) {
+                continue;
+            }
+        }
+        });
+    HANDLE c2s = c2sWorker.native_handle(), s2c = s2cWorker.native_handle();
+    c2sWorker.detach();
+    s2cWorker.detach();
+    WaitForSingleObject(g_hstop, INFINITE);
+    CancelSynchronousIo(s2c);
+    WaitForSingleObject(c2s, INFINITE);
+    WaitForSingleObject(s2c, INFINITE);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule,
