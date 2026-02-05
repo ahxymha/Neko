@@ -1,12 +1,11 @@
 ﻿#pragma once
-
-#define WIN32_LEAN_AND_MEAN             // 从 Windows 头文件中排除极少使用的内容
 // Windows 头文件
 #include <windows.h>
 #include <string>
 #include <vector>
 #include <filesystem>
 #include <utility>
+#include <cstdint>
 
 namespace PluginsMgr{
 	namespace _nkp {
@@ -59,13 +58,45 @@ namespace PluginsMgr{
 
 	}
 	namespace PluginLoader {
-		typedef BOOL(*PluginEntry)(HANDLE hostMutex, uint64_t &updateFlag, uint64_t &contentLen, uint8_t* content, HANDLE Stop);
+		using  PluginEntry = BOOL(*)(HANDLE hostMutex, uint64_t& updateFlag, uint64_t& contentLen, uint8_t* content, HANDLE Stop);
 		struct plgHost{
 			HANDLE MutexLocker;
 			uint64_t UpdateFlag;
 			uint64_t ContentLen;
 			uint8_t* Content;
 		};
+	}
+	namespace CSCommunication {
+		enum ResponseType {
+			CallBack,
+			Status,
+			Data,
+			Internal
+		};
+		enum ResponseStatus {
+			Ok,
+			More,
+			Wait,
+			Error
+		};
+#pragma pack(push, 2)
+		struct ResponseBody {
+			ResponseType type;
+			ResponseStatus status;
+			__int32 sessionId;
+			__int64 datalen;
+			unsigned char* data;
+		};
+#pragma pack(pop)
+		namespace Reciver {
+			struct ResponseBody {
+				ResponseType type;
+				ResponseStatus status;
+				__int32 sessionId;
+				__int64 datalen;
+				std::vector<unsigned char> data;
+			};
+		}
 	}
 	using PluginContent = std::pair<_nkp::_Header, std::pair<_nkp::_Manifest,std::vector<unsigned char>>>;
 	PluginContent AnalysisPlugin(std::filesystem::path nkpPath);

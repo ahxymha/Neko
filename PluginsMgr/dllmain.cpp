@@ -10,6 +10,7 @@
 #include <openssl/rand.h>
 #include <MemoryModule.h>
 #include "../Logger/framework.hpp"
+#include"plugin.h"
 #include <thread>
 
 #pragma pack(1)
@@ -442,6 +443,39 @@ BOOL IsPlgHost(BOOL &sandbox) {
     return TRUE;
 }
 
+std::vector<unsigned char> EncodeRequest(pm::CSCommunication::RequstBody& body) {
+    std::vector<unsigned char> res;
+    res.insert(res.end(), reinterpret_cast<unsigned char*>(&body), reinterpret_cast<unsigned char*>(&body) + sizeof(body) - 8);
+    res.insert(res.end(), body.data, body.data + body.datalen);
+    return res;
+}
+
+std::vector<unsigned char> EncodeResponse(const pm::CSCommunication::ResponseBody& body) {
+    std::vector<unsigned char> res;
+    res.insert(res.end(), reinterpret_cast<const unsigned char*>(&body), reinterpret_cast<const unsigned char*>(&body) + sizeof(body) - 8);
+    res.insert(res.end(), body.data, body.data + body.datalen);
+    return res;
+}
+
+pm::CSCommunication::Reciver::RequstBody DecodeRequest(const std::vector<unsigned char>& data) {
+    pm::CSCommunication::Reciver::RequstBody res;
+    memcpy_s(&res, sizeof(res) - 32, data.data(), sizeof(pm::CSCommunication::RequstBody) - 8);
+    res.data.insert(res.data.end(), data.begin() + sizeof(res) - 32, data.end());
+    return res;
+}
+
+pm::CSCommunication::Reciver::ResponseBody DecodeResponse(const std::vector<unsigned char>& data) {
+    pm::CSCommunication::Reciver::ResponseBody res;
+    memcpy_s(&res, sizeof(res) - 32, data.data(), sizeof(pm::CSCommunication::ResponseBody) - 8);
+    res.data.insert(res.data.end(), data.begin() + sizeof(res) - 32, data.end());
+    return res;
+}
+
+BOOL CallServer(pm::CSCommunication::RequstBody& body) {
+    bool async = (body.mode == pm::CSCommunication::Post || body.mode == pm::CSCommunication::Write);
+    
+}
+
 void LSComPlgHost() {
     if (!g_connection_info.uuid_pipe[0] || !g_connection_info.start_pid || !g_connection_info.checksum) {
         LogClient::error() << "No connection information" << std::endl;
@@ -533,7 +567,7 @@ void LSComPlgHost() {
                 return FALSE;
             }
             sum += wn;
-        } while (sum != data.size());
+        } while (sum < data.size());
         wn = sum;
         return TRUE;
         };
